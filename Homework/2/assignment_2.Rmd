@@ -49,20 +49,7 @@ First, let's look at summary statistics of the variables of interest in the data
   - Also, bold text in header row after using `as_flex_table`
 
 ```{r 1a}
-cancer_data <- read_csv("data/cancer_reg.csv") %>% 
-  mutate(deathrate_vs_median = ifelse(TARGET_deathRate<median(TARGET_deathRate), "No", "Yes"))
 
-tbl_summary(data=cancer_data,
-            include=c("TARGET_deathRate", "medIncome", "povertyPercent", "MedianAge", 
-                      "PctPrivateCoverage", "PctPublicCoverage", "PctWhite", "PctBlack",
-                      "PctAsian", "PctOtherRace", "deathrate_vs_median"),
-            by="deathrate_vs_median",
-            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
-  add_n() %>%
-  add_p(test = list(all_continuous() ~ "aov")) %>%
-  as_flex_table() %>%
-  bg(i=1, bg="grey") %>%
-  bold(part="header")
 ```
 
 ## B
@@ -81,9 +68,7 @@ Let's look at some 2-dimensional scatterplots of some of the above variables to 
     - Compare the distributions of the variables between the two mortality rate groups (see diagonal).
   
 ```{r 1b}
-ggpairs(cancer_data, columns = 
-          c("medIncome", "povertyPercent", "PctPrivateCoverage", "PctPublicCoverage"),
-        ggplot2::aes(colour=deathrate_vs_median))
+
 ```
 
 ## C
@@ -149,18 +134,7 @@ First, let's look at summary statistics of the variables of interest in the data
   - Also, bold text in header row after using `as_flex_table`
 
 ```{r 2a}
-diabetes_data <- read_csv("data/diabetes.csv")
 
-tbl_summary(data=diabetes_data,
-            include=c("Pregnancies", "Glucose", "BloodPressure", "SkinThickness", 
-                      "Insulin", "BMI", "Age", "Outcome"),
-            by="Outcome",
-            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
-  add_n() %>%
-  add_p(test = list(all_continuous() ~ "aov")) %>%
-  as_flex_table() %>%
-  bg(i=1, bg="grey") %>%
-  bold(part="header")
 ```
 
 ## B
