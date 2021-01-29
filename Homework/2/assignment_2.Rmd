@@ -36,7 +36,7 @@ First, let's look at summary statistics of the variables of interest in the data
 - First, create variable `deathrate_vs_median` in dataset after reading in CSV
   - `deathrate_vs_median`="No" if `TARGET_deathRate`< `median(TARGET_deathRate)`
   - ="Yes" otherwise
-- Provide stats for the following variables: 
+- Provide stats for the following variables:
   -`TARGET_deathRate`, `medIncome`, `povertyPercent`, `MedianAge`, `PctPrivateCoverage`, `PctPublicCoverage`, `PctWhite`, `PctBlack`, `PctAsian`, `PctOtherRace`
   - **NOTE**: Don't remove variables from dataset to only those marked above.  Only use functions in `gtsummary` to remove variables from table (see `include` argument)
   - Group the summary statistics by `deathrate_vs_median`
@@ -44,7 +44,7 @@ First, let's look at summary statistics of the variables of interest in the data
   - Add p-values from one-way ANOVA test for differences in variables between "No" and "Yes" groups of `TARGET_deathRate`
   - For all variables, provide mean and standard deviation (SD) as statistics
   - Add a gray background to the cells in the row corresponding to `TARGET_deathRate`
-    - **Hint**: Look at changing row/column background color in `flextable` package after using 
+    - **Hint**: Look at changing row/column background color in `flextable` package after using
     `as_flex_table` function
   - Also, bold text in header row after using `as_flex_table`
 
@@ -66,7 +66,7 @@ Let's look at some 2-dimensional scatterplots of some of the above variables to 
     - Are there variables that have high correlations?
       - Do these high correlations make sense conceptually?
     - Compare the distributions of the variables between the two mortality rate groups (see diagonal).
-  
+
 ```{r 1b}
 
 ```
@@ -116,21 +116,18 @@ Let's next move to a linear regression model for prediction.  We consider the sa
 ## Setup
 In the second part, you will work with diabetes incidence data in the US, composed of Native American, female hospital patients at 21 years old.
 
-The outcome of interest, `Outcome` in the data is binary indicator if the patient has a diagnosis of diabetes (0 = "No", 1 = "Yes").  You will try to predict this outcome based on patient traits as features.  See the docs folder for more information.  The dataset is called `diabetes_data.csv`. 
+The outcome of interest, `Outcome` in the data is binary indicator if the patient has a diagnosis of diabetes (0 = "No", 1 = "Yes").  You will try to predict this outcome based on patient traits as features.  See the docs folder for more information.  The dataset is called `diabetes_data.csv`.
 
 ## A
 First, let's look at summary statistics of the variables of interest in the data using the function `tbl_summary` in the `gtsummary` package.  Be sure to print the table as a `flextable` using the function `as_flex_table`.  Specifically:
 
-- Provide stats for the following variables: 
+- Provide stats for the following variables:
   - `Pregnancies`, `Glucose`, `BloodPressure`, `SkinThickness`, `Insulin`, `BMI`, `Age`
   - **NOTE**: Don't remove variables from dataset to only those marked above.  Only use functions in `gtsummary` to remove variables from table (see `include` argument)
   - Group the summary statistics by `Outcome`
   - Include sample size $N$ using `add_n`
   - Add p-values from one-way ANOVA test for differences in variables between groups of `Outcome`
   - For all variables, provide mean and standard deviation (SD) as statistics
-  - Add a gray background to the cells in the row corresponding to `Outcome`
-    - **Hint**: Look at changing row/column background color in `flextable` package after using 
-    `as_flex_table` function
   - Also, bold text in header row after using `as_flex_table`
 
 ```{r 2a}
@@ -151,12 +148,12 @@ Let's consider the features included in our summary statistics table (`Pregnanci
 - Lastly, test your algorithm at this "best" tuning parameter value on the test set.  Print out the test set performance based on Prediction Accuracy, Sensitivity, Specificity, PPV, and NPV using `flextable`.
   - **Hint**: Use `confusionMatrix` function in `caret` package.  Then convert to data frame to print as
   `flextable`
-  
+
 ```{r 2b}
 set.seed(12) # Setting seed for reproducibility
 
 ```
-  
+
 ## C
 Finally, we will end with using logistic regression.  We consider the same features listed in 2b with the same outcome variable.
 
@@ -166,7 +163,7 @@ Finally, we will end with using logistic regression.  We consider the same featu
   - Print out the test set performance based on Prediction Accuracy, Sensitivity, Specificity, PPV, and NPV using `flextable`.
     - **Hint**: Use `confusionMatrix` function in `caret` package.  Then convert to data frame to print as
   `flextable`
-  
+
 ```{r 2c}
 set.seed(12) # Setting seed for reproducibility
 
