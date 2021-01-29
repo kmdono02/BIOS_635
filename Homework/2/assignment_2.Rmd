@@ -114,7 +114,7 @@ Let's next move to a linear regression model for prediction.  We consider the sa
 
 # 2
 ## Setup
-In the second part, you will work with diabetes incidence data in India, composed of female hospital patients at 21 years old.
+In the second part, you will work with diabetes incidence data in the US, composed of Native American, female hospital patients at 21 years old.
 
 The outcome of interest, `Outcome` in the data is binary indicator if the patient has a diagnosis of diabetes (0 = "No", 1 = "Yes").  You will try to predict this outcome based on patient traits as features.  See the docs folder for more information.  The dataset is called `diabetes_data.csv`. 
 
