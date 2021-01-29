@@ -1,0 +1,289 @@
+---
+title: "Homework 1 Key"
+subtitle: "BIOS 635"
+author: "Kevin Donovan"
+date: "1/21/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, include=FALSE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE, include=TRUE}
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(rvest)
+```
+
+# Introduction
+In this assignment, you practice some basic R programming skills you will need to incorporate in your data analyses in future assignments.  Focus will be put on data management and wrangling, data visualization and exploration, tabulation, and regression.
+
+You will analyze some National Basketball Association (NBA) data both at the team level and player level, with player data examined during the 1999-2000, 2009-2010, and 2019-2020 seasons.  You will attempt to replicate analytic output in both numeric results and formatting, to establish formatting expectations for the rest of the course.  All data wrangling (i.e. data editing) should be done using the `tidyerse` functions whenever possible.  All plotting should be done using `ggplot2` with `theme_bw()` applied (see below).
+
+# Data Management
+## 1.
+Load the following datasets into R from the `data` folder:
+
+- nba_teams_19_20.csv
+- nba_players_99_00.csv
+- nba_players_09_10.csv
+- nba_players_19_20.csv
+
+and save each as a separate object in R.  For the player datasets, filter out players with less then 1000 minutes played (`MP`)
+
+```{r load_save_data}
+team_data <- read_csv(file = "data/nba_teams_19_20.csv")
+
+player_data_00 <- 
+  read_csv(file = "data/nba_players_99_00.csv") %>%
+  filter(MP>=1000)
+player_data_10 <- 
+  read_csv(file = "data/nba_players_09_10.csv") %>%
+  filter(MP>=1000)
+player_data_20 <- read_csv(file = "data/nba_players_19_20.csv") %>%
+  filter(MP>=1000)
+```
+
+## 2.
+### a
+For each of the three player datasets (nba_players_99_00, nba_players_09_10, nba_players_19_20), create a variable called `season` which equals string `1999-2000` for the 99_00 dataset, `2009-2010` for the 09_00 dataset, and `2019-2020`
+
+```{r 2a_answer}
+player_datasets <- list("1999-2000"=player_data_00, 
+                        "2009-2010"=player_data_10, 
+                        "2019-2020"=player_data_20)
+
+for(i in 1:length(player_datasets)){
+  player_datasets[[i]] <- 
+    player_datasets[[i]] %>%
+    mutate(season = names(player_datasets)[i])
+}
+```
+
+### b
+Combine all of the three player datasets together into a single dataset after creating the `season` variable and verify the size of the combined dataset (rows by columns) is correct
+
+```{r 2b_answer}
+player_datasets_all <- do.call("rbind", player_datasets)
+
+# Compare dimensions of combined and individual datasets
+dim(player_datasets_all)
+
+print("rows")
+dim(player_datasets$`1999-2000`)[1]+dim(player_datasets$`2009-2010`)[1]+
+  dim(player_datasets$`2019-2020`)[1]
+
+print("columns")
+dim(player_datasets$`1999-2000`)[2]
+dim(player_datasets$`2009-2010`)[2]
+dim(player_datasets$`2019-2020`)[2]
+```
+
+### c
+In your combined player data, denoted `player_datasets_all`, remove all text in the `Player` variable from a "\\" onward (ex. Kevin Donovan\\kmdono changed to Kevin Donovan).  
+
+**Hint:** One way is to use the `separate` function from `tidyverse` with `sep`="\\\\"
+
+```{r 2c_answer}
+player_datasets_all <- player_datasets_all %>%
+  separate(Player, into=c("Player", "Trash"), sep="\\\\") %>%
+  select(-Trash)
+```
+
+### d
+For the teams data (nba_teams_19_20.csv), some teams have an "\*" in their name.  This symbol indicates that the team made the playoffs.  Create the variable named `playoffs` where `playoffs`= yes if the team made the playoffs and = no otherwise.  Then remove the "\*" from their name and remove the row indicating the league average statistics.
+
+**Hint**: Use the `grepl` function with pattern = "\\*"
+
+```{r 2d_answer}
+team_data <- team_data %>%
+  mutate(playoffs = ifelse(grepl("\\*", Team)==TRUE, "yes", "no"),
+         Team = gsub("\\*", "", Team)) %>%
+  filter(Team!="League Average")
+```
+
+# Data Exploration and Visualization
+## 3.
+### a
+First, for the teams dataset print out a summary statistics table, grouped by the `playoffs` variable to see separate statistics for teams that did or didn't make the playoffs.  Using the `gtsummary` package.  Include statistics for the following variables in the following order:
+
+- Wins `W`
+- Losses `L`
+- Average age (years) `Age`
+- Strength of schedule (SOS) `SOS`
+- Offensive Rating (ORtg) `ORtg`
+- Defensive Rating (ORtg) `DRtg`
+- Pace `Pace`
+- True Shooting Percentage (TS) `TS%`
+- 3 Point Shots Attempted Rate (3PAr) `3PAr`
+
+Due to the small sample size, include the following statistics
+
+- sample size per group **and** in total
+- median and IQR (interquartile range)
+- p-value for test of group differences in median using Wilcoxon rank sum test
+
+```{r 3a_answer, include=TRUE}
+tbl_summary(data=team_data,
+            by=playoffs,
+            include=c("W", "L", "Age", "SOS", "ORtg", "DRtg",
+                      "Pace", "TS%", "3PAr", "playoffs")) %>%
+  add_n() %>%
+  add_p() %>%
+  modify_header(label = "Variable") %>%
+  bold_labels()
+```
+
+### b
+An age-long debate in basketball is the importance in a team's offense vs their defense when it comes to winning.  To examine this, do the following using `ggplot2`
+
+- Create a scatterplot of ORtg by DRtg for the teams
+- Color the points based the amount of wins for the team
+- Change the shape of the points based on if the team made the playoffs or not
+- Create two intersecting lines: one with an intercept at the mean ORtg and one with an intercept at the mean DRtg
+- Adding line of best fit using `geom_smooth` without any standard error bars and make line red
+- Add `theme_bw`
+- Change all labels (x, y, color, shape) to be legible
+
+```{r 3b_answer, include=TRUE}
+ggplot(data=team_data,
+       aes(x=ORtg, y=DRtg))+
+  geom_point(mapping=aes(color=W, shape=playoffs), size=4)+
+  geom_smooth(method="lm", se=FALSE, color="red")+
+  geom_hline(yintercept = mean(team_data$DRtg, na.rm=TRUE),
+             linetype="dashed")+
+  geom_vline(xintercept = mean(team_data$ORtg, na.rm=TRUE),
+             linetype="dashed")+
+  labs(x="Offensive Rating", y="Defensive Rating", 
+       color="Wins", shape="Playoffs")+
+  theme_bw()
+```
+
+### c
+Let's look at the player data now to do some more in-depth analyses.  Recall we have three seasons of player data to look at (denoted in the combined dataset by variable `seasons`): 1999-2000, 2009-2010, 2019-2020.  First, Let's see if we can find players are great "two-way players", i.e. those that are great at offense and defense.  We will use the Offensive and Defensive Box Plus Minus variable (`OBPM` and `DBPM`) to do this.  First, let's complete the following plot:
+
+- Scatterplot of `OBPM` by `DBPM`
+- Facet plot by `season` variable
+- Color point by `PER`, a measure of overall player performance
+- Adding line of best fit using `geom_smooth` without any standard error bars and make line red
+- Add `theme_bw`
+- Change all labels (x, y, color) to be legible
+
+```{r 3c_answer, include=TRUE}
+ggplot(data=player_datasets_all,
+       mapping=aes(x=OBPM, y=DBPM, color=PER))+
+  geom_point()+
+  geom_smooth(method="lm", se=FALSE, color="red")+
+  facet_grid(~season)+
+  labs(x="Offensive Box +-", y="Defensive Box +-")+
+  theme_bw()
+```
+
+### d
+Let's use `PER` to highlight a few players on this plot.  First, let's visualize the distribution of `PER` using a violin plot.  We will create separate plots by season and by position (`Pos`).
+
+First, let's collapse position into the following three groups
+
+- Guard (`Pos` equals PG, SG, or PG-SG)
+- Forward (`Pos` equals SF, SF-SG, or SF-PF)
+- Big (`Pos` equals PF, C, PF-C, C-PF, or PF-SF)
+- NA (otherwise, denotes missing, not same as the string "NA")
+
+Remove those with missing group from the plot
+
+- Have position group on the x-axis, as well as fill
+- Have PER on the y-axis
+- Facet by season
+- Add `theme_bw`
+- Change all labels (x, y, fill) to be legible
+
+```{r 3d_answer, include=TRUE}
+player_datasets_all_v2 <-
+  player_datasets_all %>%
+  mutate(pos_group = ifelse(Pos %in% c("PG", "SG", "PG-SG"), "Guard", 
+                            ifelse(Pos %in% c("SF", "SF-SG", "SF-PF"), "Forward",
+                                   ifelse(Pos %in% c("PF", "C", "PF-C", "C-PF",
+                                                     "PF-SF"), "Big", NA))))
+  
+ggplot(data=player_datasets_all_v2 %>% filter(is.na(pos_group)==0),
+       mapping=aes(x=pos_group, y=PER, fill=pos_group))+
+  geom_violin()+
+  facet_grid(~season)+
+  labs(x="Position", y="PER", fill="Position")+
+  theme_bw()
+```
+
+### e
+Based on this, let's look only at "elite" players by filtering our previous scattplot to only include PER > 20.  Let's also again filter out those with position group equal to `NA`.  Let's also add text to the plot next to the points which provide the name of that player for those with PER>=25.
+
+Specifically:
+
+- First, create a dataset containing only players with non-missing postion group and PER >= 25, only keeping `Player`, `OBPM`, `DBPM`, `PER`, and `season`
+- Create scatterplot with `OBPM` on the x axis and `DBPM` on the y axis, with points colored by `PER`
+- Only include players with non-missing position group and `PER`>20 in this plot
+- Facet by `season`
+- Using the `geom_text` with `label=Player` and `size=4`, add player names to appropriate points using dataset created in first bullet
+- Change x limits to between 0 and 12
+- Make x and y axis labels legible
+- Add `theme_bw`
+
+```{r 3e_answer, include=TRUE}
+names_to_display <- 
+  player_datasets_all_v2 %>% 
+         filter(is.na(pos_group)==0) %>%
+         filter(PER >= 25) %>%
+  select(Player, OBPM, DBPM, PER, season)
+  
+ggplot(data=player_datasets_all_v2 %>% 
+         filter(is.na(pos_group)==0) %>%
+         filter(PER > 20),
+       mapping=aes(x=OBPM, y=DBPM, color=PER))+
+  geom_point()+
+  geom_text(data=names_to_display, aes(label=Player), size=4)+
+  facet_grid(~season)+
+  xlim(c(0,12))+
+  labs(x="Offensive Box +-", y="Defensive Box +-")+
+  theme_bw()
+```
+
+### f
+Finally, let's create a table showing the best offensive and defensive players in the league based on `OBPM`, `DBPM`, along with looking at how often that player touches the ball on offense using `USG%`.  Finally, we see how `PER` relates to all three of these.  You can create the table using either the `gt` package or `flextable` package (below show table for the `flextable` package).  To complete this, do the following
+
+- First, take the players dataset with the added in position group variable and select the following variables: `Player`, `season`, position group, `OBPM`, `DBPM`, `USG%`, `PER`
+- Then, filter out those with missing position group
+- Then, only include those with `OBPM`>95th percentile of `OBPM` or  **or** `DBPM`>95th percentile of `DBPM`
+- Then, arrange dataset by `season`in ascending order, and `OBPM` in descending order
+- Finally create table using this edited dataset and your package of choice from above.  Make sure to include the following:
+  - Rename any "messy" column names to be legible
+  - Add colors to `PER` cells of table with **blue** on the low end of the gradient and **red** on the high end of the gradient, and **white** in the middle.  Use a scale of 8 to 32
+  
+**Hints**:
+
+1. To compute the 0.95 percentile for say `OBPM` and filter using this, use
+
+`quantile(player_dataset_edited$OBPM, p=0.95)`
+
+where `player_dataset_edited` is the name of your dataset
+
+for `DBPM` do the same by with `DBPM`.  Finally, use `filter` with `|` denoting **or** to filter data
+
+2. For `gt` package, use `data_color` function with `colors=scales::col_numeric`
+
+```{r 3f_answer, include=TRUE}
+# Example: gt
+gt(player_datasets_all_v2 %>%
+     select(Player, season, pos_group, OBPM, DBPM, `USG%`, PER) %>%
+     filter(is.na(pos_group)==0) %>%
+     filter(OBPM > quantile(player_datasets_all_v2$OBPM, p=0.95)| 
+              DBPM > quantile(player_datasets_all_v2$DBPM, p=0.95)) %>%
+     arrange(season, desc(OBPM)), 
+   rowname_col = "Player") %>%
+  cols_label(season = "Season", pos_group = "Position") %>%
+  data_color(columns = "PER",
+             colors = scales::col_numeric(palette = c("blue", "white", "red"),
+                                          domain=c(8,32)))
+```
