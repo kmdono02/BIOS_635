@@ -20,6 +20,8 @@ library(scatterplot3d)
 library(rgl)
 library(caret)
 library(reshape2)
+library(GGally)
+library(pROC)
 ```
 
 # Review
@@ -418,7 +420,279 @@ Based on $\hat{\text{Pr}}[Y=1|HeartRate, Age]$ can create predicted response $\h
 
 # Logistic Regression: Confounding
 
+**Example**: Credit Card Default Rate
 
+* Consider predicting if a person defaults on their loan based on
+  + Student Status (Student or Not Student):
+  
+<center>
+<figure>
+    <img src='images/log_reg_student_only.png' alt='missing' width="650"/>
+</figure>
+</center>
 
+  + Now consider adding features: `credit balance` and `income`
+  
+<center>
+<figure>
+    <img src='images/log_reg_student_plus.png' alt='missing' width="650"/>
+</figure>
+</center>
 
+  + Why did `student`'s coefficient change so much?  **Confounding**
 
+# Logistic Regression: Confounding
+
+<center>
+<figure>
+    <img src='images/log_reg_student_control.png' alt='missing' width="650"/>
+</figure>
+</center>
+
+* Being a student $\rightarrow$ higher balance (more loans)
+  + $\rightarrow$ higher marginal default rate vs non-students
+  + But is it the higher balance or simply them being students leading to defaulting more often?
+  + Need to compare students and non-students **controlling** for balance to answer this
+  + Can be done using regression
+  
+# Logistic Regression: Prediction
+  
+**Example**: Model probability of heart disease as function of many features
+
+```{r, echo=TRUE, fig.width = 14, fig.height = 12}
+ggpairs(heart_data, columns = 
+          c("Age", "Sex", "Chest_Pain", "Resting_Blood_Pressure", "Colestrol",
+            "MAX_Heart_Rate", "Exercised_Induced_Angina"),
+        ggplot2::aes(colour=heart_disease),
+        diag = list(continuous="barDiag"))
+```
+
+# Logistic Regression: Prediction
+
+* Split data into training and testing set (60:40 split)
+* Fit logistic regression model on train, evaluate on test
+
+```{r, echo=TRUE}
+# Partition Data
+set.seed(12)
+train_test_indices <- createDataPartition(heart_data$heart_disease, p=0.6, list = FALSE)
+heart_data_train <- heart_data[train_test_indices,]
+heart_data_test <- heart_data[-train_test_indices,]
+
+# Train
+lm_fit <- glm(formula = heart_disease~Age+Sex+Chest_Pain+Resting_Blood_Pressure+Colestrol+
+                MAX_Heart_Rate+Exercised_Induced_Angina,
+              data = heart_data_train,
+              family = binomial())
+
+summary(lm_fit)
+```
+
+# Logistic Regression: Prediction
+
+```{r, echo=TRUE, fig.width = 8, fig.height = 5}
+# Add in test set predictions
+heart_data_test$estimated_prob_heart_disease <-
+  predict(lm_fit, newdata=heart_data_test, type = "response")
+
+# View test set probabilities
+ggplot(data=heart_data_test,
+       mapping=aes(x=heart_disease, y=estimated_prob_heart_disease,
+                   fill=heart_disease))+
+  geom_boxplot()+
+  labs(x="Heart Disease", y="Estimated Probability",
+       title = "Estimated probability of heart disease for test set\nusing logistic regression",
+       fill = "Heart Disease")+
+  theme_classic()+
+  theme(text = element_text(size=15))
+```
+
+# Logistic Regression: Prediction
+
+* How to create predicted outcomes using estimated probabilities?
+  + Easy way:
+  
+$$
+\begin{align}
+\hat{Y_i} &= I[p(X_i)>0.5]\\
+&=\begin{cases}
+1 & \text{if } p(X_i)>0.5 \\
+0 & \text{if } p(X_i)\leq0.5
+\end{cases}
+\end{align}
+$$
+
+  + In heart disease data:
+```{r, echo=TRUE, fig.width = 8, fig.height = 5}
+# Add in test set predictions
+heart_data_test <-
+  heart_data_test %>%
+  mutate(pred_heart_disease = 
+           relevel(factor(ifelse(estimated_prob_heart_disease>0.5, "Yes", "No")),
+                   ref = "No"))
+
+# Compute confusion matrix
+confusionMatrix(data = heart_data_test$pred_heart_disease,
+                reference = heart_data_test$heart_disease,
+                positive = "Yes")
+```
+
+# Logistic Regression: Prediction
+
+* What if we don't split the data?
+```{r, echo=TRUE, fig.width = 8, fig.height = 5}
+# Add in train set predictions
+heart_data_train$estimated_prob_heart_disease <-
+  predict(lm_fit, newdata=heart_data_train, type = "response")
+
+heart_data_train <-
+  heart_data_train %>%
+  mutate(pred_heart_disease = 
+           relevel(factor(ifelse(estimated_prob_heart_disease>0.5, "Yes", "No")),
+                   ref = "No"))
+
+# Compute confusion matrix
+confusionMatrix(data = heart_data_train$pred_heart_disease,
+                reference = heart_data_train$heart_disease,
+                positive = "Yes")
+```
+
+* Not a big difference.  **Why?**
+
+# Classification: Threshold
+
+* We defined $\hat{Y}$ using a 0.5 probability threshold
+  + Other thresholds may give **better performance**
+  + Infinitely many thresholds $\rightarrow$ how to aggregate?
+  + Answer: *receiver operating characteristic* curve (ROC curve)
+  
+# ROC Curve 
+
+* For given threshold $p$, ROC curve is function:
+  * $ROC(p) = (TPR, FPR)$
+  * Maps each threshold to corresponding *true positive rate* (TPR) amd *false positive rate* pair
+  * $TPR=\text{Sensitivity}$, $1-FPR=\text{Specificity}$
+  * Helps choose "best" threshold based on sensitivity and specificity considerations
+  
+<center>
+<figure>
+    <img src='images/roc_curve_ex.png' alt='missing' width="600"/>
+</figure>
+</center>
+
+# ROC Curve Ex.
+
+* Heart disease dataset example
+* Let's compute the ROC curve using the test set to evaluation differences thresholds
+
+```{r, echo=TRUE, fig.width = 8, fig.height = 5}
+# Using pROC, add ROC curve using estimated probabilities of heart disease in test set
+roc_obj <- 
+  roc(response = heart_data_test$heart_disease, 
+    predictor = heart_data_test$estimated_prob_heart_disease)
+
+# Print obj
+roc_obj
+
+# Plot curve
+plot(roc_obj, main = paste0("ROC curve for heart disease prediction on test set\n AUC=",
+                            round(auc(roc_obj),2)))
+```
+
+# ROC Curve Ex.
+
+* For actual use, need to choose threshold
+  * Example: "Elbow Point"/max(Youden's Index)
+  
+```{r, echo=TRUE, fig.width = 8, fig.height = 5}
+# Using pROC, add ROC curve using estimated probabilities of heart disease in test set
+roc_obj <- 
+  roc(response = heart_data_test$heart_disease, 
+    predictor = heart_data_test$estimated_prob_heart_disease)
+
+# Print obj
+roc_obj
+
+# Return max Youden's index, with specificity and sensitivity
+best_thres_data <- 
+  data.frame(coords(roc_obj, x="best", best.method = c("youden", "closest.topleft")))
+
+best_thres_data
+
+# Plot curve, add in line at elbow point
+data_add_line <-
+  data.frame("sensitvity"=c(1-best_thres_data$specificity,
+                            best_thres_data$sensitivity),
+             "specificity"=c(best_thres_data$specificity,
+                            best_thres_data$specificity))
+  
+ggroc(roc_obj)+
+    geom_point(
+    data = best_thres_data,
+    mapping = aes(x=specificity, y=sensitivity), size=2, color="red")+
+    geom_point(mapping=aes(x=best_thres_data$specificity, 
+               y=1-best_thres_data$specificity), 
+               size=2, color="red")+
+    geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1),
+                 color="darkgrey", linetype="dashed")+
+    geom_text(data = best_thres_data,
+              mapping=aes(x=specificity, y=0.95,
+                          label=paste0("Threshold = ", round(threshold,2),
+                                       "\nSensitivity = ", round(sensitivity,2),
+                                       "\nSpecificity = ", round(specificity,2),
+                                       "\nAUC = ", round(auc(roc_obj),2))))+
+    geom_line(data=data_add_line,
+              mapping=aes(x=specificity, y=sensitvity),
+              linetype="dashed")+
+  theme_classic()
+```
+
+* Choose threshold based on study-specific **cost-benefit analysis**
+
+# Case-control sampling
+* `r sum(heart_data$heart_disease=="Yes")` cases and `r sum(heart_data$heart_disease=="No")` controls - $\hat{\pi}=$ `r round(sum(heart_data$heart_disease=="Yes")/dim(heart_data)[1],2)`
+  * However, true proportion of heart disease in population is much lower ($\pi=0.05$)
+* If model is correct, logistic regression allows accurate estimation of $\beta_j$, $j>0$
+  * $\beta_0$ estimate **not** accruate due to baseline prevalance in sample
+* Can **correct** intercept estimate using transformation:
+
+$$
+\hat{\beta}^{*}_0=\hat{\beta_0}+\text{log}(\frac{\pi}{1-\pi})-\text{log}(\frac{\hat{\pi}}{1-\hat{\pi}})
+$$
+
+* Case-control sampling done due to cases being rare
+  * i.e., all cases in population selected
+  * Controls then randomly sampled from population
+  * How many controls to sample?
+  
+# Case-control sampling
+
+<center>
+<figure>
+    <img src='images/case_control_sample_fig.png' alt='missing' width="800"/>
+</figure>
+</center>
+
+# Multi-class classification
+
+<center>
+<figure>
+    <img src='images/multi_class_classification.png' alt='missing' width="800"/>
+</figure>
+</center>
+
+# Multi-class classification: logistic regression
+
+<center>
+<figure>
+    <img src='images/multi_class_log_reg.png' alt='missing' width="800"/>
+</figure>
+</center>
+
+# Multi-class classification: logistic regression
+* Can extend usual two-class logistic regression for multiple-classes
+  * Don't work well in practice
+* Instead discuss other methods which are superior
+  * Ex. Linear discrimminant analysis (LDA)
+  
+# Song of the session
