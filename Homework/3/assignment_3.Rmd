@@ -1,0 +1,179 @@
+---
+title: "Homework 2"
+subtitle: "BIOS 635"
+author: "..."
+date: "1/28/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+library(pROC)
+```
+
+# Introduction
+In this assignment you will practice using logistic regression, linear discriminant analysis (LDA), and quadratic discriminant analysis (QDA) to develop prediction algorithms for breast cancer.
+
+Information about the data can be found at https://www.kaggle.com/uciml/breast-cancer-wisconsin-data.  The data consists of summary measures about masses extracted from the breasts of patients in Wisconsin.  The mass is denoted as malignant (M), a "positive" outcome or "case", and benign (B), a "negative" outcome or "control".  Information on the mass in the dataset includes
+
+1. Radius
+2. Texture
+3. Perimeter
+4. Area
+5. Smoothness
+6. Symmetry
+
+denoted in the data as "means" for each attribute, across multiple scans due to variation in a given scan.
+
+Please provide your written responses as text outside of your code chunks (i.e. not as comments in your code).
+
+# 1
+## A
+Let's first consider logistic regression to predict the breast cancer for a patient based on information on the extracted mass. 
+
+First, let's provide summary statistics for the measures mentioned above, separated by diagnosis group, using `tbl_summary`.  Please include the following:
+
+- Don't include ID in the table
+- Group statistics by diagnosis groups
+- Compute means and SDs for the variables
+- Include sample sizes for each variable
+- Include ANOVA tests for group differences for each variables
+- Format the table column headers to be in written, clear English (see below)
+
+```{r load_data, echo=TRUE}
+cancer_data <- read_csv("data/breast_cancer_data.csv") %>%
+  select(id, diagnosis, 
+         radius_mean, texture_mean, perimeter_mean, 
+         area_mean, smoothness_mean, symmetry_mean)
+```
+
+```{r 1a}
+
+```
+
+## B
+Let's create a series of scatterplots to look at the distributions of the above features between the diagnosis groups.  We will do this using GGally, as in Assignment 2.  Please do the following:
+
+- Look at the following variables
+  - Use `ggpairs` from the `GGally` package
+  - `radius_mean`, `texture_mean`, `perimeter_mean`, `area_mean`, `smoothness_mean`, `symmetry_mean`
+  - Color points by `diagnosis`
+  - Provide some interpretation of the relationships you see in the figure.  Specifically:
+    - Are there variables that have high correlations?
+      - Do these high correlations make sense conceptually?  If so, how so?  (**Hint**: see relationship between area, perimeter, and radius)
+    - Compare the distributions of the variables between the two diagnosis groups
+- Based on these results, which features would you consider using as features in your prediction analyses and why?
+
+```{r 1b, fig.width = 12, fig.height = 8}
+
+```
+
+## C
+Let's create a prediction algorithm for diagnosis using logistic regression.  Let's first consider using all of the features plotted above.  
+
+- Create a training and testing data split using a 60:40 allocation.  
+- Then train a logistic regression algorithm on the training dataset only.  
+- Print out the regression parameter results in a formatted table (estimates, standard errors, test statistic, p-value) using `flextable`.  
+- At a 50% probability threshold, compute the predicted diagnosis in the **training dataset** based on your logistic regression model, and print out the corresponding confusion matrix.
+
+```{r 1c}
+set.seed(12)
+```
+
+## D
+Based on the results in the passed two questions, collinearity in the features, which may impact the quality of the prediction model.  
+
+- Is collinearity present in the features used to train your model in part **1C**?  Use the results in part **1B** and **1C** to support your answer.
+- Based on this answer, adjust your feature set and retrain your regression model.  Please report the same results as was reported in **1C**, with the same formatting.
+
+```{r 1d}
+set.seed(12)
+
+```
+
+## E
+Using the model in **1D**, fit your trained logistic regression model on your test set and obtain the estimated probabilities of a malignant diagnosis in the **test set**.  Using these, provide the following:
+
+- Predict diagnosis by thresholding the probability at 0.5.  Provide the corresponding confusion matrix.
+- Create and plot the ROC curve for the test set performance using the `pROC` package.  Please use the `ggroc` function to create the plot.  Include the following in the title of your plot:
+  - What are your predicting?
+  - Is this for the training or testing set?
+  - What method are you using to create your predict model
+  - On a separate line in the title (use `"\n"` in the title specification to force a new line), include "AUC=..."
+- Using the maximum Youden's index, provide the sensitivity and specificity at the best threshold.  Mark point on the ROC curve where this threshold exists (see lecture slide code to create this point).
+- Interpret the ROC curve by answering the following questions
+  - What does a ROC curve represent?  Why does one create an ROC curve vs. using a confusion matrix at a specific threshold (say 0.5)?
+  - What is Youden's index, i.e. how is it calculated?  Why is the "maximum" index used as the chosen threshold?  Why might this index **not** serve as the best threshold for a given study?
+
+```{r 1e}
+set.seed(12)
+
+```
+
+# 2
+## A
+Now, let's look at LDA and QDA instead as methods to create the prediction algorithm for cancer diagnosis.
+
+First, let's use LDA to train an algorithm.  Again, we will use all of the features mentioned in **1B**.  Please do the following:
+
+- Train a LDA algorithm on the training dataset only.  
+- At a 50% probability threshold, compute the predicted diagnosis in the **training dataset** based on your LDA model, and print out the corresponding confusion matrix.
+- Compare the training set performance of your LDA algorithm to the training set performance of your logistic regression model in **1C** and **1D**.
+- Using the results in **1A** and **1B**, is there evidence that the assumptions of LDA (normally distributed features, equal variance in each class, etc.) are violated?  If so, what evidence and what assumptions are violated?
+
+```{r 2a}
+set.seed(12)
+
+```
+
+## B
+Re-do the analysis in **2A**, but with the subset of features selected in part **1D**.  Are there any differences in your LDA model performances between **2A** and **2B**?
+
+```{r 2b}
+set.seed(12)
+
+```
+
+## C
+For the models trained in **2A** and **2B**, compute the testing set performance for each.  Please report the following for each of the two models:
+
+- Using a 0.5 probability threshold, create confusion matrices with measures of sensitivity, specificity, PPV, and NPV.  
+- Compute AUC
+- Compare these results between the models
+
+```{r 2c}
+set.seed(12)
+
+```
+
+## D
+Regardless of the results in **2C**, let's consider only the subset of features defined in **2B**.  Let's consider using QDA instead.  Please do the following:
+
+- Train a QDA algorithm on the training dataset only.  
+- Create and plot the ROC curve for the test set performance using the `pROC` package.  Please use the `ggroc` function to create the plot.  Include the following in the title of your plot:
+  - What are your predicting?
+  - Is this for the training or testing set?
+  - What method are you using to create your predict model
+  - On a separate line in the title (use `"\n"` in the title specification to force a new line), include "AUC=..."
+- Using the maximum Youden's index, provide the sensitivity and specificity at the best threshold.  Mark point on the ROC curve where this threshold exists (see lecture slide code to create this point).
+
+```{r 2d}
+set.seed(12)
+
+```
+
+## E
+Finally, compare the QDA AUC results in **2C** to the reduced-feature set LDA AUC results in **2C**, on the **testing set**.  Are there assumptions in LDA that are removed in QDA which may be better suited to the features in this dataset based on the exploratory results in **1A** and **1B**?
+
+
