@@ -1,0 +1,334 @@
+---
+title: "Homework 2"
+subtitle: "BIOS 635"
+author: "Kevin Donovan"
+date: "1/28/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+```
+
+# Introduction
+In this assignment you will practice using some basic machine learning methods and concepts discussed so far in lecture to develop prediction algorithms from real-world public health datasets.  You will predict a continuous outcome first, followed by a binary outcome ("Yes" or "No), using K-nearest neighbor, linear regression, and logistic regression
+
+# 1
+## Setup
+In the first part, you will work with cancer mortality data in the United States at the county level from 2010-2016, with demographic information on the counties from 2013 US Census estimates.
+
+The outcome of interest in the data is mean yearly per capita (100,000 people) cancer mortalities from 2010-2016, denoted `TARGET_deathRate` in the dataset (`cancer_reg.csv`).  So more info on the dataset in the docs folder.  
+
+## A
+First, let's look at summary statistics of the variables of interest in the data using the function `tbl_summary` in the `gtsummary` package.  Be sure to print the table as a `flextable` using the function `as_flex_table`.  Specifically:
+
+- First, create variable `deathrate_vs_median` in dataset after reading in CSV
+  - `deathrate_vs_median`="No" if `TARGET_deathRate`< `median(TARGET_deathRate)`
+  - ="Yes" otherwise
+- Provide stats for the following variables: 
+  -`TARGET_deathRate`, `medIncome`, `povertyPercent`, `MedianAge`, `PctPrivateCoverage`, `PctPublicCoverage`, `PctWhite`, `PctBlack`, `PctAsian`, `PctOtherRace`
+  - **NOTE**: Don't remove variables from dataset to only those marked above.  Only use functions in `gtsummary` to remove variables from table (see `include` argument)
+  - Group the summary statistics by `deathrate_vs_median`
+  - Include sample size $N$ using `add_n`
+  - Add p-values from one-way ANOVA test for differences in variables between "No" and "Yes" groups of `TARGET_deathRate`
+  - For all variables, provide mean and standard deviation (SD) as statistics
+  - Add a gray background to the cells in the row corresponding to `TARGET_deathRate`
+    - **Hint**: Look at changing row/column background color in `flextable` package after using 
+    `as_flex_table` function
+  - Also, bold text in header row after using `as_flex_table`
+
+```{r 1a}
+cancer_data <- read_csv("../../2/data/cancer_reg.csv") %>% 
+  mutate(deathrate_vs_median = ifelse(TARGET_deathRate<median(TARGET_deathRate), "No", "Yes"))
+
+tbl_summary(data=cancer_data,
+            include=c("TARGET_deathRate", "medIncome", "povertyPercent", "MedianAge", 
+                      "PctPrivateCoverage", "PctPublicCoverage", "PctWhite", "PctBlack",
+                      "PctAsian", "PctOtherRace", "deathrate_vs_median"),
+            by="deathrate_vs_median",
+            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bg(i=1, bg="grey") %>%
+  bold(part="header")
+```
+
+## B
+Now, let's do some data visualization.  
+
+Let's look at some 2-dimensional scatterplots of some of the above variables to assess correlation.  Specifically, recreate the following matrix of scatterplots:
+
+- Look at the following variables
+  - Use `ggpairs` from the `GGally` package:     
+    - https://www.r-graph-gallery.com/199-correlation-matrix-with-ggally.html
+  - `medIncome`, `povertyPercent`, `PctPrivateCoverage`, `PctPublicCoverage`
+  - Color points by `deathrate_vs_median`
+  - Provide some interpretation of the relationships you see in the figure.  Specifically:
+    - Are there variables that have high correlations?
+      - Do these high correlations make sense conceptually?
+    - Compare the distributions of the variables between the two mortality rate groups (see diagonal).
+  
+```{r 1b}
+ggpairs(cancer_data, columns = 
+          c("medIncome", "povertyPercent", "PctPrivateCoverage", "PctPublicCoverage"),
+        ggplot2::aes(colour=deathrate_vs_median))
+```
+
+We see that counties with cancer mortality rates higher then the median have lower median income, median percentage on private health insurance coverage, and a higher median percentage in poverty and on public health insurance coverage.  These relationships track with a) relationship in general between economic status and health outcomes (positive) and economic status and type of health insurance coverage (higher economic status implies more likely to be on private health insurance).  Median income is highly correlated with all three features, especially in the above median mortality counties.  This high correlation is expected based on the relationships discussed above.
+
+## C
+Now, let's begin to create our prediction algorithms for `TARGET_deathRate`.  First, we will start with using K-nearest neighbor (KNN).
+
+Let's consider the features included in our summary statistics table (`TARGET_deathRate`, `medIncome`, `povertyPercent`, `MedianAge`, `PctPrivateCoverage`, `PctPublicCoverage`, `PctWhite`, `PctBlack`, `PctAsian`, `PctOtherRace`).  
+
+- First, we will split our data into separate training and testing sets (60% in training and 40% in testing) randomly.  
+- Next, train a KNN algorithm on the training dataset.
+  - Use `train` function in `caret` function (see lecture slides).  Use `tuneLength`=20 and center and scale the features (see `preProcess` argument).
+  - Leave everything else at default.  What is the "best" tuning parameter value chosen for parameter $k$?
+  What criteria is used by R to select this "best" parameter?
+  - Plot the RMSE for each considered value of $k$ during the tuning process.  What does $k$ represent based on the plot (**Hint**: see lecture slides and x-axis of plot)
+- Lastly, test your algorthim at this "best" tuning parameter value on the test set.  Print out the test set performance based on RMSE, $R^2$, and MAE using `flextable`
+
+```{r 1c}
+set.seed(12) # Setting seed for reproducibility
+
+cancer_data_tt_index <- createDataPartition(cancer_data$TARGET_deathRate,
+                                            p=0.6, list = FALSE)
+cancer_data_train <- cancer_data[cancer_data_tt_index,]
+cancer_data_test <- cancer_data[-cancer_data_tt_index,]
+
+knnFit <- train(TARGET_deathRate ~ medIncome + povertyPercent + MedianAge +
+                      PctPrivateCoverage + PctPublicCoverage + PctWhite + PctBlack +
+                      PctAsian + PctOtherRace, 
+                data = cancer_data_train, method = "knn", tuneLength = 20,
+                      preProcess = c("center", "scale"))
+
+# Look at tuning results
+knnFit
+plot(knnFit)
+
+# Test on test set
+cancer_data_test$knn_pred_TARGET_deathRate <-
+  predict(knnFit, newdata = cancer_data_test)
+
+# Print out RMSE, R2, and MAE
+data.frame(t(postResample(cancer_data_test$knn_pred_TARGET_deathRate,
+             cancer_data_test$TARGET_deathRate))) %>%
+  flextable() %>%
+  colformat_double(digits=2)
+
+```
+
+Based on the training set performance, the "best" tuning parameter was $k=35$, which was selected based on the parameter which results in the lowest residual mean squared error (RMSE).  The RMSE in the training set at various values of $k$ is plotted visually, where increasing $k$ means an increasing number of neighbors, meaning a decrease in the number of neighborhoods/decrease in the specificity of the fit.
+
+## D
+### I
+Let's next move to a linear regression model for prediction.  We consider the same features listed in 1c with the same outcome variable.
+
+- Use the same training and testing sets created in 1c
+- Train a linear regression algorithm with all of the above features.  Print out the following results:
+  - Coefficient estimate table from `summary` function (estimate, standard error, test statistic, p-value)
+    - Create this table using the `tidy` function from `broom` and print out using `flextable`
+  - Evaluate the following assumptions using the corresponding visual
+    - 1. Homoskedasicity (fitted value by residual plot)
+    - 2. Normality (QQ plot of residuals vs theoretical normal distribution)
+  - One may argue that normally distributed residuals are not a concern for this dataset.  Why?
+  - One common belief in regression is that your **outcome** is assumed to be normally distributed.  Why is
+  this incorrect?
+  
+  
+```{r 1d_1}
+lm_fit <- lm(TARGET_deathRate ~ medIncome + povertyPercent + MedianAge +
+                      PctPrivateCoverage + PctPublicCoverage + PctWhite + PctBlack +
+                      PctAsian + PctOtherRace, 
+                data = cancer_data_train)
+
+# Look at results
+summary(lm_fit)
+tidy(lm_fit) %>%
+  flextable()
+
+# Create diagnostics plot
+# Residual by fitted value
+plot(x=lm_fit$fitted.values, y=lm_fit$residuals)
+
+# QQ plot
+qqnorm(y=lm_fit$residuals)
+qqline(y=lm_fit$residuals)
+```
+Evaluating the two main assumptions of our linear regression model (assuming the independent residual assumption is true), we see that homoskedasicity seems present in our sample, though the residuals may not be normally distriubted.  First, when plotting the fitted values on the x-axis and the residuals on the y-axis, we see that the spread in the residuals as we move across the x-axis is visually fairly constant.  Thus, we see no evidence that indicates homoskedasicity is violated.  To assess the normal distribution assumption, we see based on the QQ plot that this assumption for the residuals may be violated.  This is evident by the deviation of the observed sample quantiles from the theoretical line for normally distributed residuals.  It is incorrect to assert that linear regression assumes that your outcome variable is normally distributed, as it is actually assumed that either 1) your residuals are normally distributed or 2) by the central limit theorem, your sample is large enough for your test statistics to be approximately T distributed.  None of these imply that your **outcome** is normally distrbuted.
+
+### II
+- Test the algorithm developed in the previous step on the test dataset.  Print out the following in a `flextable`
+  - Test set RMSE, $R^2$, adjusted $R^2$, and MAE
+- In a separate `flextable`, print out these same metrics based on the performance in the training set
+  - Evaluate the differences between the training and testing performance
+- Based on your plots in 1b, do you have any concerns about collinearity?  If so, how would you change the set of feature variable used to fix this concern?  How did you choose this set?
+  - **Note**: you don't need to actually re-run the regression analysis with this reduced set of features
+  
+```{r 1d_2}
+# Test on test set
+cancer_data_test$lm_pred_TARGET_deathRate <-
+  predict(lm_fit, newdata = cancer_data_test)
+
+# Print out RMSE, R2, and MAE in Test set
+data.frame(t(postResample(cancer_data_test$lm_pred_TARGET_deathRate,
+             cancer_data_test$TARGET_deathRate))) %>%
+  mutate(adjusted_r_squared =
+           1-(1-Rsquared)*(dim(cancer_data_test)[1]-1)/
+           (dim(cancer_data_test)[1]-length(lm_fit$coefficients)-1)) %>%
+  flextable() %>%
+  set_caption(caption="Test Set LM Metrics") %>%
+  colformat_double(digits=3)
+
+# Print out RMSE, R2, and MAE in training set
+cancer_data_train$lm_pred_TARGET_deathRate <-
+  predict(lm_fit, newdata = cancer_data_train)
+
+data.frame(t(postResample(cancer_data_train$lm_pred_TARGET_deathRate,
+             cancer_data_train$TARGET_deathRate))) %>%
+  mutate(adjusted_r_squared =
+           1-(1-Rsquared)*(dim(cancer_data_train)[1]-1)/
+           (dim(cancer_data_train)[1]-length(lm_fit$coefficients)-1)) %>%
+  flextable() %>%
+  set_caption(caption="Train Set LM Metrics") %>%
+  colformat_double(digits=3)
+```
+
+Comparing the training and testing set performances, we see that all metrics are very similar, with only a negligible increase in R squared and adjusted R squared in the training, and decrease in RMSE and MAE.  This is consistent given the low propensity for linear regression to overfit to the training set, and due to our large sample size in both the training and testing sets.  From our scatterplots in the beginning of the analysis, the very high (>0.7) correlations between variables reflects a strong chance of collinearity in our regression analysis.  One way to address this would be to remove poverty percentage and percentage of those on public health insurance from the model, as these are largely functions of income.
+
+# 2
+## Setup
+In the second part, you will work with diabetes incidence data in India, composed of female hospital patients at 21 years old.
+
+The outcome of interest, `Outcome` in the data is binary indicator if the patient has a diagnosis of diabetes (0 = "No", 1 = "Yes").  You will try to predict this outcome based on patient traits as features.  See the docs folder for more information.  The dataset is called `diabetes_data.csv`. 
+
+## A
+First, let's look at summary statistics of the variables of interest in the data using the function `tbl_summary` in the `gtsummary` package.  Be sure to print the table as a `flextable` using the function `as_flex_table`.  Specifically:
+
+- Provide stats for the following variables: 
+  - `Pregnancies`, `Glucose`, `BloodPressure`, `SkinThickness`, `Insulin`, `BMI`, `Age`
+  - **NOTE**: Don't remove variables from dataset to only those marked above.  Only use functions in `gtsummary` to remove variables from table (see `include` argument)
+  - Group the summary statistics by `Outcome`
+  - Include sample size $N$ using `add_n`
+  - Add p-values from one-way ANOVA test for differences in variables between groups of `Outcome`
+  - For all variables, provide mean and standard deviation (SD) as statistics
+  - Add a gray background to the cells in the row corresponding to `Outcome`
+    - **Hint**: Look at changing row/column background color in `flextable` package after using 
+    `as_flex_table` function
+  - Also, bold text in header row after using `as_flex_table`
+
+```{r 2a}
+diabetes_data <- read_csv("../../2/data/diabetes.csv") %>%
+  mutate(Outcome=as.factor(Outcome))
+
+tbl_summary(data=diabetes_data,
+            include=c("Pregnancies", "Glucose", "BloodPressure", "SkinThickness", 
+                      "Insulin", "BMI", "Age", "Outcome"),
+            by="Outcome",
+            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bg(i=1, bg="grey") %>%
+  bold(part="header")
+```
+
+## B
+Now, let's begin to create our prediction algorithms for `Outcome`.  First, we will start with using K-nearest neighbor (KNN).
+
+Let's consider the features included in our summary statistics table (`Pregnancies`, `Glucose`, `BloodPressure`, `SkinThickness`, `Insulin`, `BMI`, `Age`).  
+
+- First, we will split our data into separate training and testing sets (60% in training and 40% in testing) randomly.  
+- Next, train a KNN algorithm on the training dataset.
+  - Use `train` function in `caret` function (see lecture slides).  Use `tuneLength`=20 and center and scale the features (see `preProcess` argument).
+  - Leave everything else at default.  What is the "best" tuning parameter value chosen for parameter $k$?
+  What criteria is used by R to select this "best" parameter?
+  - Plot the Prediction Accuracy for each considered value of $k$ during the tuning process.  What does $k$ represent based on the plot (**Hint**: see lecture slides and x-axis of plot)
+- Lastly, test your algorithm at this "best" tuning parameter value on the test set.  Print out the test set performance based on Prediction Accuracy, Sensitivity, Specificity, PPV, and NPV using `flextable`.
+  - **Hint**: Use `confusionMatrix` function in `caret` package.  Then convert to data frame to print as `flextable`
+  
+```{r 2b}
+set.seed(12) # Setting seed for reproducibility
+
+diabetes_data_tt_index <- createDataPartition(diabetes_data$Outcome,
+                                            p=0.6, list = FALSE)
+diabetes_data_train <- diabetes_data[diabetes_data_tt_index,]
+diabetes_data_test <- diabetes_data[-diabetes_data_tt_index,]
+
+knnFit <- train(Outcome ~ Pregnancies + Glucose + BloodPressure +
+                      SkinThickness + Insulin + BMI + Age, 
+                data = diabetes_data_train, method = "knn", tuneLength = 20,
+                      preProcess = c("center", "scale"))
+
+# Look at tuning results
+knnFit
+plot(knnFit)
+
+# Test on test set
+diabetes_data_test$knn_pred_Outcome <-
+  predict(knnFit, newdata = diabetes_data_test)
+
+# Print out confusion matrix
+confmatrix_obj <- confusionMatrix(data = diabetes_data_test$knn_pred_Outcome,
+                reference = diabetes_data_test$Outcome, 
+                positive = "1")
+
+confmatrix_obj$table
+data.frame(t(confmatrix_obj$byClass)) %>%
+  flextable()
+```
+  
+The best tuning parameter was $k=29$, which was determined based on the parameter with the maximum prediction accuracy.
+
+## C
+Finally, we will end with using logistic regression.  We consider the same features listed in 2b with the same outcome variable.
+
+- Train a logistic regression algorithm with all of the above features.  Print out the following results:
+  - Coefficient estimate table from `summary` function (estimate, standard error, test statistic, p-value)
+    - Create this table using the `tidy` function from `broom` and print out using `flextable`
+  - Print out the test set performance based on Prediction Accuracy, Sensitivity, Specificity, PPV, and NPV using `flextable`.
+    - **Hint**: Use `confusionMatrix` function in `caret` package.  Then convert to data frame to print as
+  `flextable`
+  
+```{r 2c}
+set.seed(12) # Setting seed for reproducibility
+
+logistic_fit <- glm(Outcome ~ Pregnancies + Glucose + BloodPressure +
+                      SkinThickness + Insulin + BMI + Age, 
+                data = diabetes_data_train,
+                family = binomial())
+
+tidy(logistic_fit) %>%
+  flextable()
+
+# Test on test set
+diabetes_data_test$logistic_prob_Outcome <-
+  predict(logistic_fit, newdata = diabetes_data_test, type="response")
+
+diabetes_data_test <- 
+  diabetes_data_test %>%
+  mutate(logistic_pred_Outcome=factor(ifelse(logistic_prob_Outcome>0.5, 1, 0)))
+
+# Print out confusion matrix
+confmatrix_obj <- confusionMatrix(data = diabetes_data_test$logistic_pred_Outcome,
+                reference = diabetes_data_test$Outcome, 
+                positive = "1")
+
+confmatrix_obj$table %>% flextable()
+
+data.frame(t(confmatrix_obj$byClass)) %>%
+  flextable()
+```
