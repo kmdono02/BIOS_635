@@ -615,7 +615,7 @@ roc_obj
 
 # Return max Youden's index, with specificity and sensitivity
 best_thres_data <- 
-  data.frame(coords(roc_obj, x="best", best.method = c("youden", "closest.topleft")))
+  data.frame(coords(roc_obj, x="best", best.method = c("youden")))
 
 best_thres_data
 
