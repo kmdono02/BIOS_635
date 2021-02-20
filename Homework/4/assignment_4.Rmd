@@ -1,0 +1,98 @@
+---
+title: "Homework 4"
+subtitle: "BIOS 635"
+author: "..."
+date: "2/20/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+library(mgcv)
+library(splines)
+```
+
+# Introduction
+In this assignment you will practice using non-linear regression, specifically splines.
+
+Information about the data can be found at https://www.kaggle.com/goldenoakresearch/us-acs-mortgage-equity-loans-rent-statistics?select=real_estate_db.csv.  The data consists of United States housing price information and demographic information in various cities.  We will only be looking 
+
+Please provide your written responses as text outside of your code chunks (i.e. not as comments in your code).
+
+# 1
+## A
+First, let's read-in the data and keep only variables which are interested in, due to the large number of variables in the dataset.  Only keep the following: `state`, `city`, `place`, `pop`, `rent_median`, `debt`, `pct_own`, `male_age_mean`, `female_age_mean`, `male_pop`, `female_pop`.  Then, create the following variables:
+
+`age_mean`=average of male and female ages, weighted by proportion of population in each gender
+
+`age_vs_mean`=0 if `age_mean`<mean of `age_mean` in dataset, =1 otherwise
+
+Finally, create a summary statistics table using `tbl_summary` and `flex_table` of the above variables in the dataset (excluding `state`, `city`, and `place`), group by `age_vs_mean`.  Please include:
+
+- Compute means and SDs for the variables
+- Include sample sizes for each variable
+- Include ANOVA tests for group differences for each variables
+- Format the table column headers to be in written, clear English
+
+```{r 1a}
+
+```
+
+## B
+Now, we will consider modeling median rent as a function of average age in the area.  First, using `ggplot`, provide a scatterplot of median rent (Y) as a function of average age (X).  Superimposed on this plot, include the following two trend lines:
+
+1. Line of best fit (i.e. regression line between these variables)
+2. LOESS line
+
+and remove the standard error shaded regions.  Comparing the visual differences in these lines, is there evidence that a nonlinear regression model would be worthwhile to pursue in the data?  If so, why?
+
+```{r 1b}
+
+```
+
+## C
+Regardless of your answer in 1B, let's consider modeling as a nonlinear function of age.  First, we will try a piecewise linear regression using linear splines.  
+
+First, create a training and testing set using a 60:40 split.  Then, by hand (i.e. don't use the `bs` function), in the training set fit a linear spline model with `rent_median` as the outcome and `age_mean` as the independent variable.  Include knots at the following percentiles of `age_mean`: 0.25, 0.5, and 0.75 (3 total knots).  Using the `summary` function with `tidy`, print out the regression estimates for the parameters and interpret what each estimate means.
+
+Finally, test this model on the test set by providing the mean squared error (MSE).
+
+```{r 1c}
+set.seed(12)
+
+```
+
+## D
+Let's consider a variety of nonlinear models.  Using the `bs` function to fit splines of a given order, fit the spline models on the training set **using a loop**, storing each spline fit from `lm` as a component in a list.  The spline models all will have 3 knots at 0.25, 0.5, 0.75, but range in order from 1 to 5 (i.e. fit a linear spline, a quadratic spline, cubic spline, 4th order spline, and 5th order spline).  For each spline model, save the training and testing set MSE in a data.frame (along with the spline order as a third variable).  Also include a natural cubic spline model in this process (using the `ns` function).
+
+```{r 1d}
+set.seed(12)
+
+```
+
+## E
+Using the results in 1D, print out the training and testing set MSE data.frame you created (should have 6 rows, 1 for each of the spline models including the natural spline).  Also, provide two scatterplots, one for the training and one for the testing sets, of the MSE as a function of order.  Connect each point with a line.  Based on the test set results, which order provide the "best" fit and how was this "best" fit determined?  How do the training and testing plots differ and what could be an explanation? **(Hint: recall overfitting and dimensionality)**
+
+```{r 1e}
+set.seed(12)
+
+```
+
+## F
+Re-do the plot in 1B with the following two trend lines:
+
+1. Line of best fit (i.e. regression line between these variables)
+2. Spline chosen in 1E based on test set
+
+When plotting the spline, make sure you refit it using all of the data (as you are plotting all of the data).  Lastly, suppose a colleague asked if you could model separate spline-based trend lines per state in the data.  How would you model this?  That is, describe the model in words as well as providing the corresponding model mathematically with interpretations of each parameter (i.e. the betas and residual variance) and variable you create.  Regardless of the results in 1E, use a second order (quadratic) spline when creating this model.  **You don't need to fit this model in software, just write it out and describe it**.
