@@ -1,0 +1,445 @@
+---
+title: "Homework 2"
+subtitle: "BIOS 635"
+author: "..."
+date: "1/28/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+library(pROC)
+```
+
+# Introduction
+In this assignment you will practice using logistic regression, linear discriminant analysis (LDA), and quadratic discriminant analysis (QDA) to develop prediction algorithms for breast cancer.
+
+Information about the data can be found at https://www.kaggle.com/uciml/breast-cancer-wisconsin-data.  The data consists of summary measures about masses extracted from the breasts of patients in Wisconsin.  The mass is denoted as malignant (M), a "positive" outcome or "case", and benign (B), a "negative" outcome or "control".  Information on the mass in the dataset includes
+
+1. Radius
+2. Texture
+3. Perimeter
+4. Area
+5. Smoothness
+6. Symmetry
+
+denoted in the data as "means" for each attribute, across multiple scans due to variation in a given scan.
+
+Please provide your written responses as text outside of your code chunks (i.e. not as comments in your code).
+
+# 1
+## A
+Let's first consider logistic regression to predict the breast cancer for a patient based on information on the extracted mass. 
+
+First, let's provide summary statistics for the measures mentioned above, separated by diagnosis group, using `tbl_summary`.  Please include the following:
+
+- Don't include ID in the table
+- Group statistics by diagnosis groups
+- Compute means and SDs for the variables
+- Include sample sizes for each variable
+- Include ANOVA tests for group differences for each variables
+- Format the table column headers to be in written, clear English (see below)
+
+```{r load_data, echo=TRUE}
+cancer_data <- read_csv("data/breast_cancer_data.csv") %>%
+  select(id, diagnosis, 
+         radius_mean, texture_mean, perimeter_mean, 
+         area_mean, smoothness_mean, symmetry_mean) %>%
+  mutate(diagnosis = factor(diagnosis))
+```
+
+```{r 1a}
+tbl_summary(data=cancer_data,
+            by=diagnosis,
+            statistic = list(all_continuous() ~ "{mean} ({sd})"),
+            include = c("diagnosis", "radius_mean", "texture_mean",
+                        "perimeter_mean", "area_mean", "smoothness_mean",
+                        "symmetry_mean"),
+            label = list(radius_mean~"Radius",
+                         texture_mean~"Texture",
+                         perimeter_mean~"Perimeter",
+                         area_mean~"Area",
+                         smoothness_mean~"Smoothness",
+                         symmetry_mean~"Symmetry")) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bold(part="header")
+```
+
+## B
+Let's create a series of scatterplots to look at the distributions of the above features between the diagnosis groups.  We will do this using GGally, as in Assignment 2.  Please do the following:
+
+- Look at the following variables
+  - Use `ggpairs` from the `GGally` package
+  - `radius_mean`, `texture_mean`, `perimeter_mean`, `area_mean`, `smoothness_mean`, `symmetry_mean`
+  - Color points by `diagnosis`
+  - Provide some interpretation of the relationships you see in the figure.  Specifically:
+    - Are there variables that have high correlations?
+      - Do these high correlations make sense conceptually?  If so, how so?  (**Hint**: see relationship between area, perimeter, and radius)
+    - Compare the distributions of the variables between the two diagnosis groups
+- Based on these results, which features would you consider using as features in your prediction analyses and why?
+
+```{r 1b, fig.width = 12, fig.height = 8}
+ggpairs(cancer_data, columns = 
+          c("radius_mean", "texture_mean",
+                        "perimeter_mean", "area_mean", "smoothness_mean",
+                        "symmetry_mean"),
+        ggplot2::aes(colour=diagnosis))
+```
+
+## C
+Let's create a prediction algorithm for diagnosis using logistic regression.  Let's first consider using all of the features plotted above.  
+
+- Create a training and testing data split using a 60:40 allocation.  
+- Then train a logistic regression algorithm on the training dataset only.  
+- Print out the regression parameter results in a formatted table (estimates, standard errors, test statistic, p-value) using `flextable`.  
+- At a 50% probability threshold, compute the predicted diagnosis in the **training dataset** based on your logistic regression model, and print out the corresponding confusion matrix.
+
+```{r 1c}
+set.seed(12)
+
+cancer_data_tt_index <- createDataPartition(cancer_data$diagnosis,
+                                            p=0.6, list = FALSE)
+cancer_data_train <- cancer_data[cancer_data_tt_index,]
+cancer_data_test <- cancer_data[-cancer_data_tt_index,]
+
+glm_fit <- 
+  glm(diagnosis~radius_mean+texture_mean+perimeter_mean+area_mean+
+        smoothness_mean+symmetry_mean, 
+              family=binomial(),
+             data=cancer_data_train)
+
+# Raw output
+summary(glm_fit)
+
+# Format output
+tidy(glm_fit) %>%
+  mutate(p.value=ifelse(p.value<0.005, "<0.005", 
+                        as.character(round(p.value, 3))),
+         term=fct_recode(factor(term),
+                         "Intercept"="(Intercept)")) %>%
+  flextable() %>%
+  set_header_labels("term"="Variable",
+                    "estimate"="Estimate",
+                    "std.error"="Std. Error",
+                    "statistic"="Z Statistic",
+                    "p.value"="P-value") %>%
+  autofit()
+
+# Compute estimated probabilities of malignant
+cancer_data_train$est_probabilities <- predict(glm_fit, newdata = cancer_data_train,
+                                               type = "response")
+
+# Use 0.5 threshold
+cancer_data_train$predict_diagnosis <- 
+  factor(ifelse(cancer_data_train$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_train$predict_diagnosis,
+                reference = cancer_data_train$diagnosis,
+                positive = "M")
+```
+
+## D
+Based on the results in the passed two questions, collinearity in the features, which may impact the quality of the prediction model.  
+
+- Is collinearity present in the features used to train your model in part **1C**?  Use the results in part **1B** and **1C** to support your answer.
+- Based on this answer, adjust your feature set and retrain your regression model.  Please report the same results as was reported in **1C**, with the same formatting.
+
+From the scatterplot in 1B, we see that area, perimeter, and radius are highly correlated (as expected due to the mathematical relationships between these measurement).  This creates possible collinearity in our logistic regression model in 1C.  From the results in 1C, we see that when controlling for the others radius has a strong association with the probability of a malignant tumor (based on parameter estimates).  Thus to remove this risk of collinearity, we only include radius out of the three measurement variables.  The training process is re-done accordingly.
+
+```{r 1d}
+set.seed(12)
+
+# Same process, but only keeping radius out of three highly correlated variables
+glm_fit <- 
+  glm(diagnosis~radius_mean+texture_mean+smoothness_mean+symmetry_mean, 
+              family=binomial(),
+             data=cancer_data_train)
+
+# Raw output
+summary(glm_fit)
+
+# Format output
+tidy(glm_fit) %>%
+  mutate(p.value=ifelse(p.value<0.005, "<0.005", 
+                        as.character(round(p.value, 3))),
+         term=fct_recode(factor(term),
+                         "Intercept"="(Intercept)")) %>%
+  flextable() %>%
+  set_header_labels("term"="Variable",
+                    "estimate"="Estimate",
+                    "std.error"="Std. Error",
+                    "statistic"="Z Statistic",
+                    "p.value"="P-value") %>%
+  autofit()
+
+# Compute estimated probabilities of malignant
+cancer_data_train$est_probabilities <- predict(glm_fit, newdata = cancer_data_train,
+                                               type = "response")
+
+# Use 0.5 threshold
+cancer_data_train$predict_diagnosis <- 
+  factor(ifelse(cancer_data_train$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_train$predict_diagnosis,
+                reference = cancer_data_train$diagnosis,
+                positive = "M")
+```
+
+## E
+Using the model in **1D**, fit your trained logistic regression model on your test set and obtain the estimated probabilities of a malignant diagnosis in the **test set**.  Using these, provide the following:
+
+- Predict diagnosis by thresholding the probability at 0.5.  Provide the corresponding confusion matrix.
+- Create and plot the ROC curve for the test set performance using the `pROC` package.  Please use the `ggroc` function to create the plot.  Include the following in the title of your plot:
+  - What are your predicting?
+  - Is this for the training or testing set?
+  - What method are you using to create your predict model
+  - On a separate line in the title (use `"\n"` in the title specification to force a new line), include "AUC=..."
+- Using the maximum Youden's index, provide the sensitivity and specificity at the best threshold.  Mark point on the ROC curve where this threshold exists (see lecture slide code to create this point).
+- Interpret the ROC curve by answering the following questions
+  - What does a ROC curve represent?  Why does one create an ROC curve vs. using a confusion matrix at a specific threshold (say 0.5)?
+  - What is Youden's index, i.e. how is it calculated?  Why is the "maximum" index used as the chosen threshold?  Why might this index **not** serve as the best threshold for a given study?
+
+The ROC curve visualizes the prediction algorithm's performance (sensitivity and specificity) at a continuum of probability thresholds when making a categorical classification (benign or malignant).  This is useful compared to only evaluating a single threshold (0.5 for example) since the performance will vary depending on the chosen threshold, with 0.5 not necessarily providing the best performance.  Youden's index is a measure of how well you algorithm performs compared to "random chance".  The index is computed by comparing the distance from the ROC curve and the random chance line, at a given point.  The "maximum" index thus can serve as the point on the curve where it most improves over random chance.  This may **not** serve as the best threshold for a given study as it weighns sensitivity and specificity equally, which may not be appropriate depending on what is being predicted.
+
+```{r 1e}
+set.seed(12)
+
+# Compute estimated probabilities of malignant on TEST set
+cancer_data_test$est_probabilities <- predict(glm_fit, newdata = cancer_data_test)
+
+# Use 0.5 threshold
+cancer_data_test$predict_diagnosis <- 
+  factor(ifelse(cancer_data_test$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_test$predict_diagnosis,
+                reference = cancer_data_test$diagnosis,
+                positive = "M")
+
+# ROC curve
+# Using pROC, add ROC curve using estimated probabilities of heart disease in test set
+roc_obj <- 
+  roc(response = cancer_data_test$diagnosis, 
+    predictor = cancer_data_test$est_probabilities)
+
+# Return max Youden's index, with specificity and sensitivity
+best_thres_data <- 
+  data.frame(coords(roc_obj, x="best", best.method = c("youden")))
+
+# Plot ROC curve
+ggroc(roc_obj)+
+    geom_point(
+    data = best_thres_data,
+    mapping = aes(x=specificity, y=sensitivity), size=2, color="red")+
+    geom_point(mapping=aes(x=best_thres_data$specificity, 
+               y=1-best_thres_data$specificity), 
+               size=2, color="red")+
+    geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1),
+                 color="darkgrey", linetype="dashed")+
+    geom_text(data = best_thres_data,
+              mapping=aes(x=specificity, y=1.05,
+                          label=paste0("Sensitivity = ", round(sensitivity,2),
+                                       "\nSpecificity = ", round(specificity,2))))+
+    labs(title = 
+           paste0("ROC curve for predicting malignant tumor using logistic regression, on test set\nAUC = ", round(auc(roc_obj),2)))+
+    theme_classic()
+```
+
+# 2
+## A
+Now, let's look at LDA and QDA instead as methods to create the prediction algorithm for cancer diagnosis.
+
+First, let's use LDA to train an algorithm.  Again, we will use all of the features mentioned in **1B**.  Please do the following:
+
+- Train a LDA algorithm on the training dataset only.  
+- At a 50% probability threshold, compute the predicted diagnosis in the **training dataset** based on your LDA model, and print out the corresponding confusion matrix.
+- Compare the training set performance of your LDA algorithm to the training set performance of your logistic regression model in **1C** and **1D**.
+- Using the results in **1A** and **1B**, is there evidence that the assumptions of LDA (normally distributed features, equal variance in each class, etc.) are violated?  If so, what evidence and what assumptions are violated?
+
+The training set LDA and logistic regression models do similarly well to each other.  The main difference is that the logistic regression model had slightly higher sensitivity.  We can see based on the table in 1A that perimeter, area, and radius all have noticeably different standard deviations in the two classes, violating the same variance between class assumption in LDA.
+
+```{r 2a}
+set.seed(12)
+
+# LDA fit
+lda_fit <- train(diagnosis~radius_mean+texture_mean+perimeter_mean+area_mean+
+        smoothness_mean+symmetry_mean, 
+                data = cancer_data_train, method = "lda")
+
+# Confusion matrix
+# Compute estimated probabilities of malignant
+cancer_data_train$est_probabilities <- predict(lda_fit, newdata = cancer_data_train,
+                                               type = "prob")$M
+
+# Use 0.5 threshold
+cancer_data_train$predict_diagnosis <- 
+  factor(ifelse(cancer_data_train$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_train$predict_diagnosis,
+                reference = cancer_data_train$diagnosis,
+                positive = "M")
+```
+
+## B
+Re-do the analysis in **2A**, but with the subset of features selected in part **1D**.  Are there any differences in your LDA model performances between **2A** and **2B**?
+
+We see a significant decrease in sensitivity when using the reduced set of predictors (removing perimeter and area).
+
+```{r 2b}
+set.seed(12)
+
+# LDA fit
+lda_fit_reduced <- train(diagnosis~radius_mean+texture_mean+
+        smoothness_mean+symmetry_mean, 
+                data = cancer_data_train, method = "lda")
+
+# Confusion matrix
+# Compute estimated probabilities of malignant
+cancer_data_train$est_probabilities <- predict(lda_fit_reduced, newdata = cancer_data_train,
+                                               type = "prob")$M
+
+# Use 0.5 threshold
+cancer_data_train$predict_diagnosis <- 
+  factor(ifelse(cancer_data_train$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_train$predict_diagnosis,
+                reference = cancer_data_train$diagnosis,
+                positive = "M")
+```
+
+## C
+For the models trained in **2A** and **2B**, compute the testing set performance for each.  Please report the following for each of the two models:
+
+- Using a 0.5 probability threshold, create confusion matrices with measures of sensitivity, specificity, PPV, and NPV.  
+- Compute AUC
+- Compare these results between the models
+
+We see all measures are very similar when looking at test set performance, whether we use the full set of predictors with LDA or the reduced set with LDA.  The measures examined were sensitivity, specificity, PPV, NPV at a 0.5 threshold, and AUC.
+
+```{r 2c}
+set.seed(12)
+
+## 2A Model
+# Confusion matrix
+# Compute estimated probabilities of malignant
+cancer_data_test$est_probabilities <- predict(lda_fit, newdata = cancer_data_test,
+                                               type = "prob")$M
+
+# Use 0.5 threshold
+cancer_data_test$predict_diagnosis <- 
+  factor(ifelse(cancer_data_test$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_test$predict_diagnosis,
+                reference = cancer_data_test$diagnosis,
+                positive = "M")
+
+# Compute AUC (first computing ROC using pROC)
+roc_obj <- 
+  roc(response = cancer_data_test$diagnosis, 
+    predictor = cancer_data_test$est_probabilities)
+auc_fit <- auc(roc_obj)
+print(paste0("AUC in LDA with full feature set = ", round(auc_fit, 3)))
+
+# Due same for reduced set
+cancer_data_test$est_probabilities <- predict(lda_fit_reduced, newdata = cancer_data_test,
+                                               type = "prob")$M
+
+# Use 0.5 threshold
+cancer_data_test$predict_diagnosis <- 
+  factor(ifelse(cancer_data_test$est_probabilities>0.5,
+                                              "M", "B"))
+
+# Compute confusion matrix
+confusionMatrix(data = cancer_data_test$predict_diagnosis,
+                reference = cancer_data_test$diagnosis,
+                positive = "M")
+
+# Compute AUC (first computing ROC using pROC)
+roc_obj <- 
+  roc(response = cancer_data_test$diagnosis, 
+    predictor = cancer_data_test$est_probabilities)
+auc_fit_reduced <- auc(roc_obj)
+print(paste0("AUC in LDA with full feature set = ", round(auc_fit_reduced, 3)))
+
+```
+
+## D
+Regardless of the results in **2C**, let's consider only the subset of features defined in **2B**.  Let's consider using QDA instead.  Please do the following:
+
+- Train a QDA algorithm on the training dataset only.  
+- Create and plot the ROC curve for the test set performance using the `pROC` package.  Please use the `ggroc` function to create the plot.  Include the following in the title of your plot:
+  - What are your predicting?
+  - Is this for the training or testing set?
+  - What method are you using to create your predict model
+  - On a separate line in the title (use `"\n"` in the title specification to force a new line), include "AUC=..."
+- Using the maximum Youden's index, provide the sensitivity and specificity at the best threshold.  Mark point on the ROC curve where this threshold exists (see lecture slide code to create this point).
+
+```{r 2d}
+set.seed(12)
+
+# LDA fit
+qda_fit_reduced <- train(diagnosis~radius_mean+texture_mean+
+        smoothness_mean+symmetry_mean, 
+                data = cancer_data_train, method = "lda")
+
+# Compute estimated probabilities of malignant on TEST set
+cancer_data_test$est_probabilities <- predict(qda_fit_reduced, newdata = cancer_data_test,
+                                              type = "prob")$M
+
+# ROC curve
+# Using pROC, add ROC curve using estimated probabilities of heart disease in test set
+roc_obj <- 
+  roc(response = cancer_data_test$diagnosis, 
+    predictor = cancer_data_test$est_probabilities)
+
+# Return max Youden's index, with specificity and sensitivity
+best_thres_data <- 
+  data.frame(coords(roc_obj, x="best", best.method = c("youden")))
+
+# Plot ROC curve
+ggroc(roc_obj)+
+    geom_point(
+    data = best_thres_data,
+    mapping = aes(x=specificity, y=sensitivity), size=2, color="red")+
+    geom_point(mapping=aes(x=best_thres_data$specificity, 
+               y=1-best_thres_data$specificity), 
+               size=2, color="red")+
+    geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1),
+                 color="darkgrey", linetype="dashed")+
+    geom_text(data = best_thres_data,
+              mapping=aes(x=specificity, y=1.05,
+                          label=paste0("Sensitivity = ", round(sensitivity,2),
+                                       "\nSpecificity = ", round(specificity,2))))+
+    labs(title = 
+           paste0("ROC curve for predicting malignant tumor using QDA, on test set\nAUC = ", round(auc(roc_obj),2)))+
+    theme_classic()
+```
+
+## E
+Finally, compare the QDA AUC results in **2C** to the reduced-feature set LDA AUC results in **2C**, on the **testing set**.  Are there assumptions in LDA that are removed in QDA which may be better suited to the features in this dataset based on the exploratory results in **1A** and **1B**?
+
+We see that despite the potential violations in the assumptions of LDA (same variance across classes), QDA and LDA with the reduced set of features have essentially the same AUC.  This is despite the fact that QDA may be more appropriate for this data due to the variance relationships seen in 1A, as QDA does not assume equal variances between the classes for each feature.
