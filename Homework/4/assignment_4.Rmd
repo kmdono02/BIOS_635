@@ -74,7 +74,7 @@ set.seed(12)
 ```
 
 ## D
-Let's consider a variety of nonlinear models.  Using the `bs` function to fit splines of a given order, fit the spline models on the training set **using a loop**, storing each spline fit from `lm` as a component in a list.  The spline models all will have 3 knots at 0.25, 0.5, 0.75, but range in order from 1 to 5 (i.e. fit a linear spline, a quadratic spline, cubic spline, 4th order spline, and 5th order spline).  For each spline model, save the training and testing set MSE in a data.frame (along with the spline order as a third variable).  Also include a natural cubic spline model in this process (using the `ns` function).
+Let's consider a variety of nonlinear models.  Using the `bs` function to fit splines of a given order, fit the spline models on the training set **using a loop**, storing each spline fit from `lm` as a component in a list.  The spline models all will have 3 knots at 0.25, 0.5, 0.75, but range in order from 1 to 10 (i.e. fit a linear spline, a quadratic spline, cubic spline, 4th order spline, and so on).  For each spline model, save the training and testing set MSE in a data.frame (along with the spline order as a third variable).  Also include a natural cubic spline model in this process (using the `ns` function).
 
 ```{r 1d}
 set.seed(12)
@@ -82,7 +82,7 @@ set.seed(12)
 ```
 
 ## E
-Using the results in 1D, print out the training and testing set MSE data.frame you created (should have 6 rows, 1 for each of the spline models including the natural spline).  Also, provide two scatterplots, one for the training and one for the testing sets, of the MSE as a function of order.  Connect each point with a line.  Based on the test set results, which order provide the "best" fit and how was this "best" fit determined?  How do the training and testing plots differ and what could be an explanation? **(Hint: recall overfitting and dimensionality)**
+Using the results in 1D, print out the training and testing set MSE data.frame you created (should have 11 rows, 1 for each of the spline models including the natural spline).  Also, provide two scatterplots, one for the training and one for the testing sets, of the MSE as a function of order.  Connect each point with a line.  Based on the test set results, which order provide the "best" fit and how was this "best" fit determined?  How do the training and testing plots differ and what could be an explanation? **(Hint: recall overfitting and dimensionality)**
 
 ```{r 1e}
 set.seed(12)
