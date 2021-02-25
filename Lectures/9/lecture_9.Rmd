@@ -1,7 +1,7 @@
 ---
 title: "BIOS 635: Cross-Validation"
 author: "Kevin Donovan"
-date: "1/28/2021"
+date: "2/25/2021"
 output: slidy_presentation
 ---
 
@@ -254,8 +254,8 @@ for(j in 1:trials){
   
     for(i in 1:length(degrees)){
       for(f in 1:length(tt_indicies)){
-        wage_data_train <- wage_data_subset[tt_indicies[[f]],]
-        wage_data_test <- wage_data_subset[-tt_indicies[[f]],]
+        wage_data_train <- wage_data_subset[-tt_indicies[[f]],]
+        wage_data_test <- wage_data_subset[tt_indicies[[f]],]
   
         poly_reg_fit[[f]] <- lm(wage~poly(age, degrees[i]),
                          data=wage_data_train)
@@ -287,3 +287,150 @@ for(j in 1:trials){
     labs(title="RMSE (Root Mean Squared Error) by degree using 5-fold CV\nBy split number")+
     theme_bw()
 ```
+
+# Choosing K: bias-variance tradeoff
+
+- **Recall**: Holdout method uses only portion of data for training
+  - $\rightarrow$ test/validation performance **overestimate**
+  - $\rightarrow$ more folds $\rightarrow$ more data in training folds $\rightarrow$ better algorithm $\rightarrow$ lower mean error
+  - $\rightarrow$ LOOCV least biased estimate of test error
+- Compared to hold out, each training set in K-fold contains $\frac{(k-1)n}{k}$ obs
+  - Generally more then in holdout $\rightarrow$ less biased estimate
+  
+# Choosing K: bias-variance tradeoff
+
+- **Recall**: Test set performance from holdout method can vary a lot depending on split
+  - $\rightarrow$ not a **precise** measure of test set error
+- Can decrease variance using aggregate method like K-fold CV
+  - With LOOCV, averaging performance of $n$ trained algorithms  
+  - Testing folds differ, but training sets have almost identical set of observations
+  - $\rightarrow$ test fold performances **highly correlated**
+  - Using K-fold CV with $K<n$ decrease training set overlap $\rightarrow$ less correlated
+  - $\rightarrow$ variance of K-fold CV < LOOCV
+- This creates a **bias-variance** tradeoff when choosing K 
+  -K=5 or 10 generally chosen (based on simulation studies)
+  
+# CV for classification
+- Same process as before, divide data into $K$ partitions $C_1, \ldots, C_K$
+- Choose error/accuracy rate of interest
+  - E.g. sensitivity, specificity, classification error, etc.
+- For classification error
+  - Compute CV error
+  
+$$
+CV_K=\sum_{k=1}^{K}\frac{n_k}{n}\text{Error}_k=\frac{1}{K}\sum_{k=1}^{K}\text{Error}_k  
+$$
+
+where $\text{Error}_k=\sum_{i \in C_k}I(y_i \neq \hat{y_i})/n_k$
+
+- Can we estimate the **variability** of this estimate?
+  - Commonly used estimate of standard error:
+  
+$$
+\hat{\text{SE}}(\text{CV}_k)=\sqrt{\sum_{k=1}^{K}(\text{Error}_k-\overline{\text{Error}_k})^2/(K-1)}
+$$
+
+  - While useful, not accurate (**Why?**)
+  - Also can be used in continuous prediction CV (using MSE for example)
+  
+# CV for classification
+
+In R: heart disease prediction with LDA (see lecture 6)
+
+```{r, echo=TRUE, fig.width = 6, fig.height = 6}
+heart_data <- read_csv(file="../data/heart_disease/Correct_Dataset.csv") %>%
+  mutate(heart_disease = 
+           relevel(factor(ifelse(Target>0, "Yes", "No")), 
+                   ref = "No"))
+
+# Create lists to hold results
+lda_fit <- list()
+estimted_probs <- list()
+accuracy_rates <- list()
+
+# Create 5 folds
+tt_indicies <- createFolds(y=heart_data$heart_disease, k=5)
+
+# Run LDA for each fold, store results
+for(f in 1:length(tt_indicies)){
+  heart_data_train <- heart_data[-tt_indicies[[f]],]
+  heart_data_test <- heart_data[tt_indicies[[f]],]
+  
+  lda_fit[[f]] <- train(heart_disease~Age+Sex+Chest_Pain+Resting_Blood_Pressure+
+                               Colestrol+MAX_Heart_Rate+Exercised_Induced_Angina, 
+                             data = heart_data_train, method = "lda")
+        
+  estimted_probs[[f]] <- predict(lda_fit[[f]], newdata=heart_data_test, type = "prob")$Yes
+  pred_heart_disease <- 
+    relevel(factor(ifelse(estimted_probs[[f]]>0.5, 
+                          "Yes", "No")), ref = "No")
+  # Get accuracy rates from output
+  accuracy_rates[[f]] <- 
+    c(confusionMatrix(pred_heart_disease,
+                reference = heart_data_test$heart_disease,
+                positive = "Yes")$byClass,
+      confusionMatrix(pred_heart_disease,
+                reference = heart_data_test$heart_disease,
+                positive = "Yes")$overall,
+      "fold"=f)
+}
+
+accuracy_df <- data.frame(do.call("rbind", accuracy_rates))
+
+# Compute mean and SE for each measure to get CV mean/SE
+CV_mean <- accuracy_df %>% 
+  select(Sensitivity, Specificity, `Pos.Pred.Value`, `Neg.Pred.Value`, Accuracy) %>% 
+  apply(MARGIN = 2, FUN=mean)
+
+CV_se <- accuracy_df %>% 
+  select(Sensitivity, Specificity, `Pos.Pred.Value`, `Neg.Pred.Value`, Accuracy) %>%
+  apply(MARGIN = 2, FUN=sd)
+
+CV_mean
+CV_se
+```
+
+# CV with tuning
+- **Recall**: Often when training a prediction algorithm, need to select **tuning parameters**
+  - Ex. \# of neighbors with KNN, number of features with regression, degree in splines, etc.
+  - Where is tuning implemented in CV?
+- Example: Consider set of 5000 predictors and 50 samples of data
+  - 1. Starting with the 5000 predictors and full data, **first** find 100 predictors with largest correlation with outcome
+  - 2. Then train and test an algorithm with only these 100 predictors, using logistic regression as an example
+- How do we estimate the algorithm's test set performance without bias?
+- Can we only apply CV in step 2, after the predictors have been chosen using the full data?
+
+# NO
+- Why?
+  - This selection of parameters greatly impacts the algorithm's performance and thus is a form of tuning
+  - Tuning needs to be done within the training framework, otherwise you are training and testing on the same dataset
+  - Thus, need to do step 1 within your CV scheme
+  
+# Wrong way: visual
+- Only doing step 2 inside CV process
+
+<center>
+<figure>
+    <img src='images/cv_wrong.png' alt='missing' width="800"/>
+</figure>
+</center>
+
+# Right way: visual
+- Doing both steps 1 and 2 within CV process
+
+<center>
+<figure>
+    <img src='images/cv_right.png' alt='missing' width="800"/>
+</figure>
+</center>
+
+# Song of the session
+[Green Eggs and Ham by Princess Nokia](https://www.youtube.com/watch?v=ZZH4p5DZulo)
+
+[Everything is Beautiful by Princess Nokia](https://en.wikipedia.org/wiki/Everything_Is_Beautiful_(Princess_Nokia_album))
+
+<center>
+<figure>
+    <img src='images/princes_nokia.jpg' alt='missing' width="700"/>
+</figure>
+</center>
