@@ -218,7 +218,7 @@ $$
 where $MSE_k=\sum_{i\in C_k}(y_i-\hat{y_i})^2/n_k$ where $y_i$ is outcome and $\hat{y_i}$ is predicted outcome from training on $C_k$ **only**
 
 - $K=n$ yields $n-fold$ or *leave-one out cross-validation*
-- $CV_(K)$ is accurate measure of generalized error rate for algorithm trained on whole sample
+- $CV_{(K)}$ is accurate measure of generalized error rate for algorithm trained on whole sample
 
 # K-fold CV in R
 
@@ -308,7 +308,7 @@ for(j in 1:trials){
   - Using K-fold CV with $K<n$ decrease training set overlap $\rightarrow$ less correlated
   - $\rightarrow$ variance of K-fold CV < LOOCV
 - This creates a **bias-variance** tradeoff when choosing K 
-  -K=5 or 10 generally chosen (based on simulation studies)
+  - K=5 or 10 generally chosen (based on simulation studies)
   
 # CV for classification
 - Same process as before, divide data into $K$ partitions $C_1, \ldots, C_K$
@@ -327,7 +327,7 @@ where $\text{Error}_k=\sum_{i \in C_k}I(y_i \neq \hat{y_i})/n_k$
   - Commonly used estimate of standard error:
   
 $$
-\hat{\text{SE}}(\text{CV}_k)=\sqrt{\sum_{k=1}^{K}(\text{Error}_k-\overline{\text{Error}_k})^2/(K-1)}
+\hat{\text{SE}}(\text{CV}_K)=\sqrt{\sum_{k=1}^{K}(\text{Error}_k-\overline{\text{Error}_k})^2/(K-1)}
 $$
 
   - While useful, not accurate (**Why?**)
