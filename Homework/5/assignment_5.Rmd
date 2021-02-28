@@ -46,7 +46,7 @@ Now, we will try to predict `fetal_health` with the variable described above, on
 
 - First, let's use a 60:40 training:testing data split
 - Then, train a K-nearest neighbors (KNN) algorithm on the training dataset and then test on the test set
-- Within the training step, choose the tuning parameter based on the minimum MSE on the training set.  Try 20 different tuning parameters to evaluate (`tuneLength=20`) and print the MSEs for each of these examined parameters
+- Within the training step, choose the tuning parameter based on the maximum accuracy on the training set.  Try 20 different tuning parameters to evaluate (`tuneLength=20`) and print the maximum accuracies for each of these examined parameters
 - Using the algorithm trained with the best tuning parameter, test it by predicting the outcome on the test set and report the prediction accuracy **for each of three classes of `fetal_health`**
 
 ```{r 1b, echo=TRUE}
@@ -56,7 +56,7 @@ set.seed(12)
 ## C
 Now, we do the same as above using K-fold cross validation.  We conduct this process in a few different ways.  First, let's use the entire data to tune and then do cross validation.  Specifically:
 
-- First, choose the best tuning parameter for the KNN algorithm by trying 20 different tuning parameters to evaluate (`tuneLength=20`) and print the MSEs for each of these examined parameters, **in the entire dataset**
+- First, choose the best tuning parameter for the KNN algorithm by trying 20 different tuning parameters to evaluate (`tuneLength=20`) and print the accuracies for each of these examined parameters, **in the entire dataset**
 - Now, based on this best tuning parameter will conduct K-fold cross validation.  Try CV with the following values of K: 5, 10, and n (leave one out or LOOCV).  For each, when training the KNN on the training folds, **always use the tuning parameter selected in the first step**.  Report the per-class (3 classes for outcome `fetal_health`) CV error and standard error (SE) of this error for all three fold number choices.
 
 ```{r 1c, echo=TRUE}

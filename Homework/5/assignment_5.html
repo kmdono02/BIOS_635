@@ -404,7 +404,7 @@ library(GGally)</code></pre>
 <ul>
 <li>First, let’s use a 60:40 training:testing data split</li>
 <li>Then, train a K-nearest neighbors (KNN) algorithm on the training dataset and then test on the test set</li>
-<li>Within the training step, choose the tuning parameter based on the minimum MSE on the training set. Try 20 different tuning parameters to evaluate (<code>tuneLength=20</code>) and print the MSEs for each of these examined parameters</li>
+<li>Within the training step, choose the tuning parameter based on the maximum accuracy on the training set. Try 20 different tuning parameters to evaluate (<code>tuneLength=20</code>) and print the maximum accuracies for each of these examined parameters</li>
 <li>Using the algorithm trained with the best tuning parameter, test it by predicting the outcome on the test set and report the prediction accuracy <strong>for each of three classes of <code>fetal_health</code></strong></li>
 </ul>
 <pre class="r"><code>set.seed(12)</code></pre>
@@ -413,7 +413,7 @@ library(GGally)</code></pre>
 <h2>C</h2>
 <p>Now, we do the same as above using K-fold cross validation. We conduct this process in a few different ways. First, let’s use the entire data to tune and then do cross validation. Specifically:</p>
 <ul>
-<li>First, choose the best tuning parameter for the KNN algorithm by trying 20 different tuning parameters to evaluate (<code>tuneLength=20</code>) and print the MSEs for each of these examined parameters, <strong>in the entire dataset</strong></li>
+<li>First, choose the best tuning parameter for the KNN algorithm by trying 20 different tuning parameters to evaluate (<code>tuneLength=20</code>) and print the accuracies for each of these examined parameters, <strong>in the entire dataset</strong></li>
 <li>Now, based on this best tuning parameter will conduct K-fold cross validation. Try CV with the following values of K: 5, 10, and n (leave one out or LOOCV). For each, when training the KNN on the training folds, <strong>always use the tuning parameter selected in the first step</strong>. Report the per-class (3 classes for outcome <code>fetal_health</code>) CV error and standard error (SE) of this error for all three fold number choices.</li>
 </ul>
 <pre class="r"><code>set.seed(12)</code></pre>
