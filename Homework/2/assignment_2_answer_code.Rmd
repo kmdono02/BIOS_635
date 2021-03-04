@@ -49,7 +49,7 @@ First, let's look at summary statistics of the variables of interest in the data
   - Also, bold text in header row after using `as_flex_table`
 
 ```{r 1a}
-cancer_data <- read_csv("../../2/data/cancer_reg.csv") %>% 
+cancer_data <- read_csv("data/cancer_reg.csv") %>% 
   mutate(deathrate_vs_median = ifelse(TARGET_deathRate<median(TARGET_deathRate), "No", "Yes"))
 
 tbl_summary(data=cancer_data,

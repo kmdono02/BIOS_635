@@ -51,6 +51,7 @@ Now, we will try to predict `fetal_health` with the variable described above, on
 
 ```{r 1b, echo=TRUE}
 set.seed(12)
+
 ```
 
 ## C
