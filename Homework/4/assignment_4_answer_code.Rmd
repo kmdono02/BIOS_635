@@ -1,0 +1,301 @@
+---
+title: "Homework 4"
+subtitle: "BIOS 635"
+author: "..."
+date: "2/20/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+library(mgcv)
+library(splines)
+```
+
+# Introduction
+In this assignment you will practice using non-linear regression, specifically splines.
+
+Information about the data can be found at https://www.kaggle.com/goldenoakresearch/us-acs-mortgage-equity-loans-rent-statistics?select=real_estate_db.csv.  The data consists of United States housing price information and demographic information in various cities.  We will only be looking 
+
+Please provide your written responses as text outside of your code chunks (i.e. not as comments in your code).
+
+# 1
+## A
+First, let's read-in the data and keep only variables which are interested in, due to the large number of variables in the dataset.  Only keep the following: `state`, `city`, `place`, `pop`, `rent_median`, `debt`, `pct_own`, `male_age_mean`, `female_age_mean`, `male_pop`, `female_pop`.  Then, create the following variables:
+
+`age_mean`=average of male and female ages, weighted by proportion of population in each gender
+
+`age_vs_mean`=0 if `age_mean`<mean of `age_mean` in dataset, =1 otherwise
+
+Finally, create a summary statistics table using `tbl_summary` and `flex_table` of the above variables in the dataset (excluding `state`, `city`, and `place`), group by `age_vs_mean`.  Please include:
+
+- Compute means and SDs for the variables
+- Include sample sizes for each variable
+- Include ANOVA tests for group differences for each variables
+- Format the table column headers to be in written, clear English
+
+```{r 1a}
+# Read in data, create weighted age mean
+housing_data <- read_csv("data/real_estate_db.csv") %>%
+  select(state, city, place, pop, rent_median, debt, pct_own,
+         male_age_mean, female_age_mean, male_pop, female_pop) %>%
+  mutate(age_mean = (male_pop/pop)*male_age_mean+(female_pop/pop)*female_age_mean) %>%
+  drop_na()
+
+# Create binary age vs mean variable
+housing_data <- housing_data %>%
+  mutate(age_vs_mean=ifelse(age_mean>mean(age_mean, na.rm=TRUE), 1, 0))
+
+# Now create summary stats table
+tbl_summary(data=housing_data,
+            include=c("pop", "rent_median", "debt", "pct_own", "male_age_mean", 
+                      "female_age_mean", "male_pop", "female_pop", "age_vs_mean"),
+            by="age_vs_mean",
+            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bold(part="header")
+```
+
+## B
+Now, we will consider modeling median rent as a function of average age in the area.  First, using `ggplot`, provide a scatterplot of median rent (Y) as a function of average age (X).  Superimposed on this plot, include the following two trend lines:
+
+1. Line of best fit (i.e. regression line between these variables)
+2. LOESS line
+
+and remove the standard error shaded regions.  Comparing the visual differences in these lines, is there evidence that a nonlinear regression model would be worthwhile to pursue in the data?  If so, why?
+
+```{r 1b}
+ggplot(data=housing_data, mapping=aes(x=age_mean, y=rent_median))+
+  geom_point()+
+  geom_smooth(method="lm", se=FALSE, color="green")+
+  geom_smooth(method="loess", se=FALSE, color="coral")+
+  labs(title = 
+         "Scatterplot of area's median rent by it's mean age\nGreen line = line of best fit, orange = LOESS line",
+       x = "Mean age in area",
+       y= " Median rent in area")+
+  theme_bw()
+```
+
+When plotting median rent by mean age in the different areas in the dataset, we see there may be some evidence visually of a non-linear relationship between the two variables based on the small fluctuations in the LOESS line between 25 and 50 years of age.  However, these fluctuations appear very small when looking at the entire age and rent scale, which may indicate that a linear fit would suffice.  We can zoom in on the plot in this age scale to get a better visual sense of the nonlinearity observed.
+
+```{r 1b_extra}
+ggplot(data=housing_data, mapping=aes(x=age_mean, y=rent_median))+
+  geom_point()+
+  geom_smooth(method="lm", se=FALSE, color="green")+
+  geom_smooth(method="loess", se=FALSE, color="coral")+
+  labs(title = 
+         "Scatterplot of area's median rent by it's mean age\nGreen line = line of best fit, orange = LOESS line",
+       x = "Mean age in area",
+       y= " Median rent in area")+
+  xlim(c(25, 50))+
+  ylim(c(0, 1500))+
+  theme_bw()
+```
+
+## C
+Regardless of your answer in 1B, let's consider modeling as a nonlinear function of age.  First, we will try a piecewise linear regression using linear splines.  
+
+First, create a training and testing set using a 60:40 split.  Then, by hand (i.e. don't use the `bs` function), in the training set fit a linear spline model with `rent_median` as the outcome and `age_mean` as the independent variable.  Include knots at the following percentiles of `age_mean`: 0.25, 0.5, and 0.75 (3 total knots).  Using the `summary` function with `tidy`, print out the regression estimates for the parameters and interpret what each estimate means.
+
+Finally, test this model on the test set by providing the mean squared error (MSE).
+
+```{r 1c}
+set.seed(12)
+
+# By hand, knots 3 percentiles
+knots <- quantile(housing_data$age_mean, p=c(0.25, 0.5, 0.75))
+
+housing_data <- housing_data %>%
+  mutate(age_basis_2 = ifelse(age_mean<knots[1], 0, age_mean-knots[1]),
+         age_basis_3 = ifelse(age_mean<knots[2], 0, age_mean-knots[2]),
+         age_basis_4 = ifelse(age_mean<knots[3], 0, age_mean-knots[3]))
+
+# Now create training and testing data
+tt_indicies <- createDataPartition(y=housing_data$rent_median, p=0.6, list=FALSE)
+housing_data_train <- housing_data[tt_indicies,]
+housing_data_test <- housing_data[-tt_indicies,]
+
+# Predict outcome using spline fit
+linear_spline_fit <-
+  lm(rent_median~age_mean+age_basis_2+age_basis_3+age_basis_4,
+     data=housing_data_train)
+
+housing_data_test$predict_rent <- predict(linear_spline_fit, newdata=housing_data_test)
+
+# Print out regression model fit results
+tidy(summary(linear_spline_fit)) %>%
+  flextable()
+
+# Plot line of best fit
+ggplot(data=housing_data,
+       mapping=aes(x=age_mean, y=rent_median))+
+  geom_point()+
+  labs(title="Linear spline regression: fitted line computed 'by hand'")+
+  geom_line(data=housing_data_test,
+            mapping=aes(y=predict_rent), 
+            color="blue",
+            size=2)
+
+# Print out MSE
+mse <- mean((housing_data_test$rent_median-housing_data_test$predict_rent)^2)
+print(paste0("MSE on test set: ", mse))
+```
+
+The regression parameter estimates from the linear spline model are provided in the above table.  The intercept of 870.8 indicates that the estimated median rent where the mean age in a county is 0, is 870.8 (note that age = 0 is not interpretable, we can fix this by centering if desired).  The parameter estimate for `age_mean` of 4.5 indicates that the slope with respect to mean age and median rent between 0 and the 25th percentile of age is 4.5.  This can also be interpreted as the ''change in median rent when the mean age in the county changes by one year'' is 4.5, when mean age is between 0 and the 25th percentile.  The parameter estimate for `age_basis_2` of -12.5 denotes that the difference in the slope between mean age and median rent, comparing the 0 to 25th percentile age range to the 25th to 50th percentile age range, is -12.5.  The parameter estimate for `age_basis_3` is the same, but comparing the slopes from the 25th to 50th percentile to the 50th to 75th percentile.  Finally, the parameter estimate for `age_basis_3` is the same, but comparing the slopes from the 50th to 75th percentile to the 75th percentile and greater.  These slopes are all **estimates** and not the true slopes.
+
+## D
+Let's consider a variety of nonlinear models.  Using the `bs` function to fit splines of a given order, fit the spline models on the training set **using a loop**, storing each spline fit from `lm` as a component in a list.  The spline models all will have 3 knots at 0.25, 0.5, 0.75, but range in order from 1 to 10 (i.e. fit a linear spline, a quadratic spline, cubic spline, 4th order spline, and so on).  For each spline model, save the training and testing set MSE in a data.frame (along with the spline order as a third variable).  Also include a natural cubic spline model in this process (using the `ns` function).
+
+```{r 1d}
+set.seed(12)
+
+# Create list to hold spline order results
+splines_results_df <- list()
+for(i in 1:10){
+  # Fit spline
+  spline_model_fit <- lm(rent_median~bs(age_mean, knots=knots, degree=i),
+     data=housing_data_train)
+  
+  # Predict outcomes on training
+  housing_data_train$predict_rent <- predict(spline_model_fit,
+                                            newdata=housing_data_train)
+  
+  # Predict outcomes on testing
+  housing_data_test$predict_rent <- predict(spline_model_fit,
+                                            newdata=housing_data_test)
+  
+  # Save as dataset
+  splines_results_df[[i]] <- 
+    data.frame("order"=i,
+               "training_mse"=mean((housing_data_train$predict_rent-
+                                      housing_data_train$rent_median)^2),
+               "testing_mse"=mean((housing_data_test$predict_rent-
+                                      housing_data_test$rent_median)^2))
+}
+
+splines_results_df <- do.call("rbind", splines_results_df)
+
+# Now fit natural spline
+ns_fit <- lm(rent_median~ns(age_mean, knots=knots),
+     data=housing_data_train)
+
+# Predict outcomes on training
+housing_data_train$predict_rent <- predict(ns_fit,
+                                            newdata=housing_data_train)
+  
+# Predict outcomes on testing
+housing_data_test$predict_rent <- predict(ns_fit,
+                                            newdata=housing_data_test)
+  
+# Save as dataset
+splines_results_df[11,] <- rep(NA, 3)
+splines_results_df$order[11] <- "ns"
+splines_results_df$training_mse[11] <- 
+  mean((housing_data_train$predict_rent-housing_data_train$rent_median)^2)
+splines_results_df$testing_mse[11] <- 
+  mean((housing_data_train$predict_rent-housing_data_test$rent_median)^2)
+```
+
+## E
+Using the results in 1D, print out the training and testing set MSE data.frame you created (should have 11 rows, 1 for each of the spline models including the natural spline).  Also, provide two scatterplots, one for the training and one for the testing sets, of the MSE as a function of order.  Connect each point with a line.  Based on the test set results, which order provide the "best" fit and how was this "best" fit determined?  How do the training and testing plots differ and what could be an explanation? **(Hint: recall overfitting and dimensionality)**
+
+```{r 1e}
+set.seed(12)
+
+# First, need to sort "order" values to have NS last
+splines_results_df$order <- factor(splines_results_df$order) %>%
+  fct_relevel(c("10", "ns"), after=Inf)
+
+# Now plot for each
+# First training
+ggplot(data=splines_results_df, 
+       mapping=aes(x=order, y=training_mse))+
+  geom_point() +
+  geom_line(aes(x=as.numeric(order)))+
+  labs(x="Order", y="Training set MSE")+
+  geom_hline(yintercept = min(splines_results_df$training_mse),
+                              linetype="dashed", color="red")+
+  geom_vline(xintercept = 
+               which(splines_results_df$training_mse==min(splines_results_df$training_mse)),
+                              linetype="dashed", color="red")+
+  labs(title="RMSE (Root Mean Squared Error) by degree on training set")+
+  theme_bw()
+
+# Then testing
+ggplot(data=splines_results_df, 
+       mapping=aes(x=order, y=testing_mse))+
+  geom_point() +
+  geom_line(aes(x=as.numeric(order)))+
+  labs(x="Order", y="Testing set MSE")+
+  geom_hline(yintercept = min(splines_results_df$testing_mse),
+                              linetype="dashed", color="red")+
+  geom_vline(xintercept = 
+               which(splines_results_df$testing_mse==min(splines_results_df$testing_mse)),
+                              linetype="dashed", color="red")+
+  labs(title="RMSE (Root Mean Squared Error) by degree on tsting set")+
+  theme_bw()
+```
+
+We plot the training and testing set MSE for the 11 splines that we considered.  We notice that the ''best order'' from the training set is a 10-degree spline; this is the most complex spline model considered.  For the testing set, the ''best order'' from the testing set is a 7-degree spline, less complex then seen in the training set MSE.  This is expected, as using the training set to test has a propensity to overfit the model, resulting in a more complex model (high variance but low bias on the training set).
+
+## F
+Re-do the plot in 1B with the following two trend lines:
+
+1. Line of best fit (i.e. regression line between these variables)
+2. Spline chosen in 1E based on test set
+
+When plotting the spline, make sure you refit it using all of the data (as you are plotting all of the data).  Lastly, suppose a colleague asked if you could model separate spline-based trend lines per state in the data.  How would you model this?  That is, describe the model in words as well as providing the corresponding model mathematically with interpretations of each parameter (i.e. the betas and residual variance) and variable you create.  Regardless of the results in 1E, use a second order (quadratic) spline when creating this model.  **You don't need to fit this model in software, just write it out and describe it**.
+
+```{r 1f}
+set.seed(12)
+
+# Refit spline on whole data using best order as found in above results
+spline_model_fit <- 
+  lm(rent_median~bs(age_mean, knots=knots,
+                    degree=
+                      which(splines_results_df$testing_mse==min(splines_results_df$testing_mse))),
+     data=housing_data)
+
+# Now predict
+housing_data$rent_median_predict <- predict(spline_model_fit)
+
+# Plot
+ggplot(data=housing_data,
+       mapping=aes(x=age_mean, y=rent_median))+
+  geom_point()+
+  geom_smooth(method='lm', se=FALSE, color="green", size=1)+
+  geom_line(mapping=aes(y=rent_median_predict), color="coral", size=1)+
+  labs(title = "Scatterplot of area's median rent by it's mean age\nGreen line = line of best fit, orange = spline line",
+       x="Mean age", y="Median rent")+
+  theme_bw()
+```
+
+To fit a separate quadratic spline per state where we have only two states, we can use the following model:
+
+$$
+\begin{align}
+ MedianRent &= \beta_0+\beta_1Age+\beta_2Age^2+\beta_3AgeBasis_3+\beta_4AgeBasis_4+\beta_5AgeBasis_5 + \\ 
+& \beta_6State2*Age+\beta_7State2*Age+\beta_8State2*Age^2+\beta_9State2*AgeBasis_3 \\
+& +\beta_{10}State2*AgeBasis_4+\beta_{11}State2*AgeBasis_5+\beta_{12}State2+\epsilon \\
+& \\
+&\text{Basis fns: }AgeBasis_k = ([Age-\theta_k]^2)_+ \text{ for knot } \theta_k  \\
+&\text{where }\epsilon \sim \text{Normal}(0, \sigma^2) \\
+&\text{or sample size is large enough to omit Normal assumption}
+\end{align}
+$$
+
+For the interpretation, $\epsilon$ denotes the residuals with $\sigma^2$ the residual variance.  We include basis functions defined by $([Age-\theta_k]^2)_+$  for 3 knots, to reflect changing quadratic relationships between the time intervals defined by the knots.  Specifically, these relationships **for the reference state** are defined by $\beta_1, \ldots, \beta_5$.  The differences in these relationships between the two states are denoted by $\beta_6, \ldots, \beta_{11}$.  Finally, the intercept for the reference state is denoted by $\beta_0$ with the difference in intercepts between the states by $\beta_{12}$.
+

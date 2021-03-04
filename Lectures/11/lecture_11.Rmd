@@ -40,17 +40,22 @@ library(rmarkdown)
 # Penalized regression
 - With traditional regression:
 
+$$
 \begin{align}
 &Y = \beta_0+\beta_1X_1+\ldots+\beta_pX_p+\epsilon \\
 &\hat{\beta} = \min_{\beta} \sum_{i=1}^{n} [Y_i-(\beta_0+\beta_1X_1+\ldots+\beta_pX_p)]^2
 \end{align}
+$$
 
-- With traditional regression:
+- With penalized regression:
+
+$$
 \begin{align}
 &Y = \beta_0+\beta_1X_1+\ldots+\beta_pX_p+\epsilon \\
-&\hat{\beta} = \min_{\beta} \sum_{i=1}^{n} [Y_i-(\beta_0+\beta_1X_1+\ldots+\beta_pX_p)]^2+\lambda\sum_{j=1}^{p}||\beta_j||_^_q \\
-\text{where } \lambda >0
+&\hat{\beta} = \min_{\beta} \sum_{i=1}^{n} [Y_i-(\beta_0+\beta_1X_1+\ldots+\beta_pX_p)]^2+\lambda\sum_{j=1}^{p}||\beta_j||^q \\
+&\text{where } \lambda >0
 \end{align}
+$$
 
 - Penalized regression $\rightarrow$ need to minimize $RSS$ **and** penalty from $\beta>0$
   - Will force low magnitude $\beta \rightarrow 0$
@@ -92,7 +97,7 @@ plot(lm_ridge, xvar = "lambda")
 
 # Ridge regression and scaling
 - **Recall**: Standard least squares estimates are *scale equivalent*
-  - Multiplying predictor $X_j$ by constant $c$ simply re-scales $\hat{\beta}_j$ by $1/c
+  - Multiplying predictor $X_j$ by constant $c$ simply re-scales $\hat{\beta}_j$ by $1/c$
   - $\rightarrow X_j\hat{\beta}_j$ always the same
 - **Not the case** with penalized regression
   - Scale of $\beta_j$ determines if it is shrunk towards 0
@@ -200,7 +205,7 @@ plot(lm_ridge, xvar = "lambda")
 
 # Other penalized regression methods
 
-1. Smoothing splines
+- Smoothing splines
 
 <center>
   <figure>
@@ -208,12 +213,12 @@ plot(lm_ridge, xvar = "lambda")
   </figure>
 </center>
 
-2. Group Lasso
+- Group Lasso
 
-3. Fused Lasso
+- Fused Lasso
   - For data with temporal or spatial structure
   
-4. Elastic Net
+- Elastic Net
 
 $$
 \hat{\beta} = \min_{\beta} RSS(\beta)+\lambda_1\sum_{j=1}^{p}|\beta_j|+\lambda_2\sum_{j=1}^{p}(\beta_j)^2
