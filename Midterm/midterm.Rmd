@@ -1,0 +1,138 @@
+---
+title: "Midterm"
+subtitle: "BIOS 635"
+author: "..."
+date: "3/5/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+```
+
+# UNC Honor Code
+
+First you must digitally sign the UNC Honor Code by typing in your own below:
+
+UNC Honor Pledge: I certify that no unauthorized assistance has been received or
+given in the completion of this work
+
+NAME HERE
+
+You are allowed to use any textual resources from the course (lecture slides, lecture videos, textbooks, etc.).  You can use any outside resources as well, though always put your responses in your own words.  You are not allowed to collaborate with any one else.  You may ask the instructor or teaching assistant any questions and they will answer at their discretion.
+
+# Introduction
+
+In this exam, you will analyze three datasets: one with a continuous outcome to predict, one with a categorical outcome, and one looking at nonlinear relationships.
+
+# 1
+
+The World Health Organization (WHO) gathers data on the wellness of citizens in countries around the world.  In this part, you will analyze WHO data from the years 2000 to 2015 from various countries, containing life expectancy information on the country as well as socioeconomic traits of its citizens.  You will try to see if variables in the dataset can be predict life expectancy.
+
+# A
+
+First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First, just include rows with the years 2000, 2005, 2010, and 2015.  Then create a summary statistics table grouped by year.
+
+- Include all variables in the data, excluding `Country` and `Status`.  Have `Life expectancy` be the first variable in the table.  Also, bold the variable name from life expectancy and shade the row in gray.
+- Include sample size `N` as a column
+- For continuous variables, report the means and standard deviations
+- For categories variables, report the frequencies and percentages
+- Test differences in these variables by year.  Use F tests for continuous variables.  Leave the default testing method for categorical variables
+- You can leave the variable labels at their defaults
+
+Second, plot the life expectancy as a function of year **for all of the years in data (2000-2015)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
+
+```{r 1a}
+
+```
+
+# B
+
+Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2015 expectancy.
+
+- For the years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on `Country`.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
+- Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
+- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.  Finally, implement this system in R and report the corresponding test MSE, MAE, and $R^2$ values.
+
+```{r 1b}
+
+```
+
+# C
+
+Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the years 2010 and 2015 only.  We will consider the following methods
+
+1. K-Nearest Neighbor (KNN)
+2. Linear regression
+3. Penalized regression
+
+We will do this in the following steps:
+
+1. Create a panel of scatterplots using `GGally` for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2010 data only
+2. Based on these plots, answer the following question:
+    a. Are there any noticeably high correlations between these predictors?  How might this influence the results of a linear regression analysis?
+3. Print a scatterplot of life expectancy by each **continuous predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
+4. Now, using only the 2010 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
+    a. When training and testing, use 10-fold cross validation
+    b. When tuning KNN and penalized regression, incorporate it correctly inside the CV structure
+    c. Use Lasso with penalized regression
+    d. Print out the CV error for each of the three methods and the standard errors of the CV error
+5. Look at the predictors that were removed from the Lasso regression.  What are the coefficient estimates and p-values for these predictors from the linear regression model?  Does it make sense that these predictors were removed based on this information?
+6. What are some of the positives and negatives of using a more nonparametric method like KNN compared to linear regression?
+
+```{r 1c}
+
+```
+
+# 2
+
+Now let's consider predicting Alzheimer's diagnosis based on magnetic resonance imaging (MRI) of a person's brain.  150 people are included, between 60 to 96 years old.  While each person has multiple visits and scans, we will only use the first visit's information.  The CDR is a measure of dementia severity with 1 to 2 indicating mild to moderate dementia.  This creates 3 categories: 0=no dementia, 0.5=very mild dementia, 1+=mild to moderate dementia.  You will try to predict this category based on the imaging data and socioeconomic status variables.  See https://www.kaggle.com/jboysen/mri-and-alzheimers more information on the data.
+
+# A
+
+First, load in the data contained in `oasis_longitudinal.csv`.  Then, only keep observations with `visit=1` and re-group `CDR` so that it equals 1+ if `CDR` $\geq 0.5$.  Finally, create a summary statistic table by `CDR`.  Include all of the items mentioned in 1A.  Include all variable except `Subject ID`, `MRI ID`, and `Group`.  These 3 variables can be removed from the dataset.  Treat `SES` as categorical.  Also, compute a panel of scatterplots using `GGally`, colored by `CDR` group.
+
+```{r 2a}
+
+```
+
+# B
+
+For predicting `CDR` we will consider the following methods:
+
+1. KNN
+2. Logistic regression
+3. LDA/QDA
+4. Penalized regression
+
+We will do this in the following steps:
+1. Train and test 4 prediction models.  We will first talk about the first 3.  First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice.
+2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression **with all predictors**, and 3) LDA or QDA based on the above, **with all predictors**.  For each, use 10-fold CV and make sure you **choose your tuning parameters within the CV procedure unbiasedly**.  Print the CV error rates and SE error rates for each of the 3 models.
+3. We will now implement the following version of penalized regression.  First, using Lasso with `CDR` as a continuous, numeric variable.  Tune the penalty parameter using the default method in `glmnet`.  How is this tuning done by default?  Finally, based on this tuning parameter choice, train and test using 10 fold CV.
+4. What is incorrect about the training, tuning, and testing method requested in the part above?  Why is it incorrect and how could you adjust the procedure to be correct?  **You don't need to implement this**
+5. What are the potential benefits of using a model selection process such as penalized regression instead of simply using all the included predictors?
+6. Which of the first three models, which had the lowest CV error?  Are there any noticeable differences between the models' SEs?
+
+```{r 2b}
+
+```
+
+# C
+
+Recall we removed all visits except the first one in 2A.  Consider using all of the visits to predict `CDR`.  You will not do the analysis but will discuss about some proposed analysis ideas.  Critique these ideas and identify why they would be incorrect.  For the training and testing data partitioning method suggested, explain how you would fix this method.
+
+1. Use logistic regression or LDA/QDA on data which includes multiple visits for some subjects.  We will train and test on a 60:40 split of such a dataset.
+2. Do the same, but train and test using 10-fold CV on the whole dataset.
+
+# 3
