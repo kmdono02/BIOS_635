@@ -1,0 +1,169 @@
+---
+title: "Homework 5"
+subtitle: "BIOS 635"
+author: "..."
+date: "2/28/2021"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+                      fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=TRUE}
+library(tidyverse)
+library(broom)
+library(gtsummary)
+library(flextable)
+library(gt)
+library(caret)
+library(GGally)
+```
+
+# Introduction
+In this assignment you will practice using cross validation with prediction methods you have used in previous assignments.
+
+The data consists of 2126 records of Cardiotocogram exams (CTGs) on 2126 newborn children, with these CTGs a marker of the infant's health health.  A separate dataset which is a subset of these 2126 infants.  A variable in the dataset describes the infant's health based on a doctor's exam.  The goal is to predict this doctor's exam result simply based on the CTG results.
+
+# 1
+## A
+First, let's read-in the partial data `fetal_health_subset.csv` and keep only variables which are interested in, due to the large number of variables in the dataset.  Only keep the following: `baseline value`, `accelerations`, `fetal_movement`, `uterine_contractions`, `light_decelerations`, `severe_decelerations`, `prolongued_decelerations`, `abnormal_short_term_variability`, `mean_value_of_short_term_variability`, `mean_value_of_long_term_variability`, and `fetal_health`.  
+
+Finally, create a summary statistics table using `tbl_summary` and `flex_table` of the above variables in the dataset, group by `fetal_health`.  Please include:
+
+- Compute means and SDs for the variables
+- Include sample sizes for each variable
+- Include ANOVA tests for group differences for each variables
+- Format the table column headers to be in written, clear English
+
+```{r 1a, echo=TRUE}
+set.seed(12)
+fetal_health_data <- read.csv("data/fetal_health_subset.csv") %>% 
+  select(baseline.value, accelerations, fetal_movement, uterine_contractions, light_decelerations, severe_decelerations, prolongued_decelerations, abnormal_short_term_variability, mean_value_of_short_term_variability, mean_value_of_long_term_variability, fetal_health) %>%
+ drop_na() %>%
+ mutate(fetal_health_cat = 
+          factor(fetal_health))
+
+
+Table_1a <- as_flex_table( tbl_summary(data= fetal_health_subset,
+    by=fetal_health, 
+    type= all_continuous() ~ "continuous",
+    statistic= all_continuous() ~ "{mean} ({sd})", 
+    include = c('baseline.value', 
+         'accelerations', 'fetal_movement', 'uterine_contractions', 
+         'light_decelerations', 'severe_decelerations', 'prolongued_decelerations', 'abnormal_short_term_variability', 'mean_value_of_short_term_variability', 'mean_value_of_long_term_variability', 'fetal_health'), 
+    label = list(baseline.value ~ "Baseline Value",
+                 accelerations ~ "Accelerations",
+                 fetal_movement ~ "Fetal Movement",
+                 uterine_contractions ~ "Uterine Contractions", 
+                 light_decelerations ~ "Light Decelerations",
+                 severe_decelerations ~ "Severe Decelerations",
+                 prolongued_decelerations ~ "Prolongued Decelerations",
+                 abnormal_short_term_variability ~ "Abnormal Short Term Variability", 
+                 mean_value_of_short_term_variability ~ "Mean Value Of Short Term Variability",
+                 mean_value_of_long_term_variability ~ "Mean Value Of Long Term Variability",
+                 fetal_health ~ "Fetal Health" ), 
+    missing='no')%>%
+    add_n() %>%
+    add_p(test = c(baseline.value, accelerations, 
+                   fetal_movement, uterine_contractions, light_decelerations, 
+                   severe_decelerations, prolongued_decelerations, 
+                   abnormal_short_term_variability, 
+                   mean_value_of_short_term_variability, 
+                   mean_value_of_long_term_variability) ~ "aov")) %>%
+    bold( bold = TRUE, part = "header")  %>%
+    add_header_lines(values="Summary Statistics for Fetal Health Variables of Interest")
+
+Table_1a
+```
+
+## B
+Now, we will try to predict `fetal_health` with the variable described above, on the `fetal_health_subset.csv` data.  
+
+- First, let's use a 60:40 training:testing data split
+- Then, train a K-nearest neighbors (KNN) algorithm on the training dataset and then test on the test set
+- Within the training step, choose the tuning parameter based on the maximum accuracy on the training set.  Try 20 different tuning parameters to evaluate (`tuneLength=20`) and print the maximum accuracies for each of these examined parameters
+- Using the algorithm trained with the best tuning parameter, test it by predicting the outcome on the test set and report the prediction accuracy **for each of three classes of `fetal_health`**
+
+```{r 1b, echo=TRUE}
+set.seed(12)
+
+start <- proc.time()
+for(i in 1:10){
+  tt_indicies <- createDataPartition(y=fetal_health_subset$fetal_health, p=0.6,
+                                     list=FALSE)
+  
+  fetal_health_train2 <- fetal_health_subset[tt_indicies,]
+  fetal_health_test2 <- fetal_health_subset[-tt_indicies,]
+      
+  knn_train <- train(form=fetal_health_c~., data=fetal_health_train2,
+                       method="knn", tuneLength=20)
+}
+proc.time()-start
+```
+
+## C
+Now, we do the same as above using K-fold cross validation.  We conduct this process in a few different ways.  First, let's use the entire data to tune and then do cross validation.  Specifically:
+
+- First, choose the best tuning parameter for the KNN algorithm by trying 20 different tuning parameters to evaluate (`tuneLength=20`) and print the accuracies for each of these examined parameters, **in the entire dataset**
+- Now, based on this best tuning parameter will conduct K-fold cross validation.  Try CV with the following values of K: 5, 10, and n (leave one out or LOOCV).  For each, when training the KNN on the training folds, **always use the tuning parameter selected in the first step**.  Report the per-class (3 classes for outcome `fetal_health`) CV error and standard error (SE) of this error for all three fold number choices.
+
+```{r 1c, echo=TRUE}
+set.seed(12)
+
+data_set_list <- list()
+predict_fetal <- list()
+individualfolds <- list()
+kfolds<-c(5,10,100)
+
+for(k in 1:length(kfolds)) {
+  individualfolds<- createFolds(y=fetal_health_data$fetal_health_cat, k=kfolds[k])
+  per_class_accuracy <- list()
+
+    for(i in 1:length(individualfolds)){
+      fetal_health_train <- fetal_health_data[-individualfolds[[i]],]
+      fetal_health_test <- fetal_health_data[individualfolds[[i]],]
+    
+    
+      KNNfit<-train(fetal_health_cat ~., data = fetal_health_train, method = "knn",
+                  preProcess = c("center","scale"),tuneGrid=expand.grid(k=5))
+    
+      fetal_health_test$predict_fetal <- predict(KNNfit, newdata =
+                                                   fetal_health_test,type="raw")
+      per_class_accuracy[[i]] <- rep(NA, length(levels(fetal_health_test$fetal_health_cat)))
+
+      for(l in 1:length(per_class_accuracy[[i]])){
+        per_class_accuracy[[i]][l] <- 
+          fetal_health_test %>%
+          filter(fetal_health_cat==levels(fetal_health_cat)[l]) %>%
+          summarise(accuracy = sum(predict_fetal==levels(fetal_health_cat)[l])/n()) %>%
+          unlist()
+          
+        names(per_class_accuracy[[i]])[l] <- paste0("accuracy_", 
+                                               levels(fetal_health_test$fetal_health_cat)[l])
+      }
+
+    }
+
+    
+
+  data_set_list[[k]]  <- do.call("rbind", per_class_accuracy) %>%
+    apply(MARGIN=2, FUN=mean, na.rm=TRUE)
+  
+  data_set_list[[k]] <- c(data_set_list[[k]], "folds"=kfolds[k])
+}
+
+data_set_list_all <- do.call("rbind", data_set_list)
+```
+
+## D
+Do the same, but this time, choose **training set specific tuning parameter**.  That is, instead of choosing a single tuning parameter value for the entire CV processes, choose the tuning parameter within each training process inside the CV procedure.  Report the same results for the CV process as was done in 1C.  Compare and contrast the CV error and SE in both 1C and 1D.  If differences exist, what could be a plausible reason? (**Hint: recall bias and variance tradeoff**).  Which of the two ways tuning was implemented is correct?
+
+## E
+Finally, we will look at the variability in the 60:40 training:testing performance and compare this to the variability of K-fold CV.  We will use 5-fold CV for this process.
+
+- First, repeat the analysis done in 1B 100 times, each with different 60:40 splits (simply change the seed to get reproducible splits, see lecture slides).  For each of these 100 times, save the per-class (3 classes  for outcome `fetal_health`) prediction accuracy.  
+- Secondly, repeat the analysis done in 1D 100 times, with 5-fold CV only.  Save the per-class (3 classes) CV error for all three fold number choices.
+- Finally, construct boxplots for these 100 error rates from the 60:40 split procedure, boxplots for the 100 error rates from the 5-fold CV procedure, as well as report in a table the mean and variance in error rates for both the 60:40 procedure and 5-fold CV procedure, for each of the three classes.  Based on this table, do you notice any difference between these per-class error rate distributions?  What could be the cause?
+

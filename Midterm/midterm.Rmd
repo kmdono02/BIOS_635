@@ -38,7 +38,7 @@ In this exam, you will analyze three datasets: one with a continuous outcome to 
 
 # 1
 
-The World Health Organization (WHO) gathers data on the wellness of citizens in countries around the world.  In this part, you will analyze WHO data from the years 2000 to 2015 from various countries, containing life expectancy information on the country as well as socioeconomic traits of its citizens.  You will try to see if variables in the dataset can be predict life expectancy.
+The World Health Organization (WHO) gathers data on the wellness of citizens in countries around the world.  In this part, you will analyze WHO data from the years 2000 to 2015 from various countries, containing life expectancy information on the country as well as socioeconomic traits of its citizens.  You will try to see if variables in the dataset can be predict life expectancy.  Information on this dataset can be found at https://www.kaggle.com/kumarajarshi/life-expectancy-who
 
 # A
 
@@ -117,12 +117,13 @@ For predicting `CDR` we will consider the following methods:
 4. Penalized regression
 
 We will do this in the following steps:
+
 1. Train and test 4 prediction models.  We will first talk about the first 3.  First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice.
-2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression **with all predictors**, and 3) LDA or QDA based on the above, **with all predictors**.  For each, use 10-fold CV and make sure you **choose your tuning parameters within the CV procedure unbiasedly**.  Print the CV error rates and SE error rates for each of the 3 models.
+2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression **with all predictors**, and 3) LDA or QDA based on the above, **with all predictors**.  For each, use 10-fold CV and make sure you **choose your tuning parameters within the CV procedure unbiasedly**.  Print the CV error rates and SE error rates for each of the 3 models, by `CDR` class (*by-class error rates and SEs*).
 3. We will now implement the following version of penalized regression.  First, using Lasso with `CDR` as a continuous, numeric variable.  Tune the penalty parameter using the default method in `glmnet`.  How is this tuning done by default?  Finally, based on this tuning parameter choice, train and test using 10 fold CV.
 4. What is incorrect about the training, tuning, and testing method requested in the part above?  Why is it incorrect and how could you adjust the procedure to be correct?  **You don't need to implement this**
 5. What are the potential benefits of using a model selection process such as penalized regression instead of simply using all the included predictors?
-6. Which of the first three models, which had the lowest CV error?  Are there any noticeable differences between the models' SEs?
+6. Which of the first three models, which had the lowest **per-class** CV errors?  Are there any noticeable differences between the models' **per-class** SEs?
 
 ```{r 2b}
 
