@@ -19,6 +19,9 @@ library(flextable)
 library(gt)
 library(caret)
 library(GGally)
+library(ggpubr)
+library(gam)
+library(splines)
 ```
 
 # UNC Honor Code
@@ -61,9 +64,9 @@ Second, plot the life expectancy as a function of year **for all of the years in
 
 Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2015 expectancy.
 
-- For the years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on `Country`.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
+- For the data from years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on `Country`.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
 - Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
-- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.  Finally, implement this system in R and report the corresponding test MSE, MAE, and $R^2$ values.
+- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.
 
 ```{r 1b}
 
@@ -71,7 +74,7 @@ Now, we will begin to predict life expectancy.  First, let's see how well using 
 
 # C
 
-Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the years 2010 and 2015 only.  We will consider the following methods
+Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the year 2015 only.  We will consider the following methods
 
 1. K-Nearest Neighbor (KNN)
 2. Linear regression
@@ -79,7 +82,7 @@ Now we will begin to use all of the variables for predicting life expectancy.  F
 
 We will do this in the following steps:
 
-1. Create a panel of scatterplots using `GGally` for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2010 data only
+1. Create a correlation matrix plot using `corrplot(data, method="number")` from the `corrplot` package, for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2010 data only
 2. Based on these plots, answer the following question:
     a. Are there any noticeably high correlations between these predictors?  How might this influence the results of a linear regression analysis?
 3. Print a scatterplot of life expectancy by each **continuous predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
@@ -137,3 +140,41 @@ Recall we removed all visits except the first one in 2A.  Consider using all of 
 2. Do the same, but train and test using 10-fold CV on the whole dataset.
 
 # 3
+
+To look at non-linearity, you work with a dataset of individuals who applied for a banking loan.  Each row of the dataset contains an individual applying for a loan, with various characteristics about them, information on the overall area's economy, as well as if they received the loan ("yes" or "no").  Your goal is to train and test an algorithm to predict if a person receives a loan based on these characteristics.  See https://www.kaggle.com/henriqueyamahata/bank-marketing for information on the dataset (as well the txt file `bank-additional-names.txt`).
+
+# A
+
+First, load up the data saved as the CSV file `bank_data_subset.csv`.  Only read in the following variables: `age`, `job`, `marital`, `education`, `default`, `housing`, `loan`, `emp.var.rate`, `cons.price.idx`, `cons.conf.idx`, `nr.employed`, and `y`.  Then create a summary statistics table grouped by outcome (received loan) variable `y`.  
+
+- Include all variables in the data.  Bold all column headers.  Group statistics by `y`.
+- Include sample size `N` as a column
+- For continuous variables, report the means and standard deviations
+- For categories variables, report the frequencies and percentages
+- Test differences in these variables by year.  Use F tests for continuous variables.  Leave the default testing method for categorical variables
+- You can leave the variable labels at their defaults
+
+```{r 3a}
+
+```
+
+# B
+
+Now, create a panel of scatterplots for these variables, colored by `y` using GGally.  Interpret any noticeably non-zero correlations, and denote there are any signs of collinearity between these variables.  Does it make sense to use correlations of the categorical variables?  If so why?  If not, why not?
+
+```{3b}
+
+```
+
+# C
+
+Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM).  Use the `gam` package to fit these models (and make sure `y` is a factor variable!),  You will consider 2 models.  Both will have the following categorical predictors: `job`, `marital`, `education`, `default`, `housing`, `loan` and `y` as the outcome.  The models are differentiated by how the following predictors are used: `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx`.  The other variables in the data are omitted from all prediction models.
+
+1. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as linear
+2. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as natural cubic splines.  Choose the knots using `df=4`.
+
+Use 5-fold CV to train and test your algorithms.  Report either 1) the CV prediction accuracy and CV standard error (SE) of this accuracy **or** 2) the CV prediction error and CV standard error (SE) of this error for each of these two models in a labeled `flextable`, based on a 0.5 threshold.  Did the addition of the nonlinear spline terms improve the model fit?  Also, **what quantiles of the predictors were the knots place?**  (Hint: using `ns(bank_data$age, df=4)` will tell you)
+
+```{3c}
+
+```

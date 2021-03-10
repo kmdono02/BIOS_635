@@ -43,7 +43,8 @@ fetal_health_data <- read.csv("data/fetal_health_subset.csv") %>%
   select(baseline.value, accelerations, fetal_movement, uterine_contractions, light_decelerations, severe_decelerations, prolongued_decelerations, abnormal_short_term_variability, mean_value_of_short_term_variability, mean_value_of_long_term_variability, fetal_health) %>%
  drop_na() %>%
  mutate(fetal_health_cat = 
-          factor(fetal_health))
+          factor(fetal_health)) %>%
+  select(-fetal_health)
 
 
 Table_1a <- as_flex_table( tbl_summary(data= fetal_health_subset,
@@ -117,7 +118,10 @@ predict_fetal <- list()
 individualfolds <- list()
 kfolds<-c(5,10,100)
 
-for(k in 1:length(kfolds)) {
+knn_full_data <- train(fetal_health_cat ~., data = fetal_health_data, method = "knn",
+                  preProcess = c("center","scale"), tuneLength=20)
+
+for(k in 1:length(kfolds)){
   individualfolds<- createFolds(y=fetal_health_data$fetal_health_cat, k=kfolds[k])
   per_class_accuracy <- list()
 
@@ -125,9 +129,9 @@ for(k in 1:length(kfolds)) {
       fetal_health_train <- fetal_health_data[-individualfolds[[i]],]
       fetal_health_test <- fetal_health_data[individualfolds[[i]],]
     
-    
       KNNfit<-train(fetal_health_cat ~., data = fetal_health_train, method = "knn",
-                  preProcess = c("center","scale"),tuneGrid=expand.grid(k=5))
+                  preProcess = c("center","scale"),
+                  tuneGrid=knn_full_data$bestTune)
     
       fetal_health_test$predict_fetal <- predict(KNNfit, newdata =
                                                    fetal_health_test,type="raw")
@@ -150,6 +154,9 @@ for(k in 1:length(kfolds)) {
 
   data_set_list[[k]]  <- do.call("rbind", per_class_accuracy) %>%
     apply(MARGIN=2, FUN=mean, na.rm=TRUE)
+  
+   do.call("rbind", per_class_accuracy) %>%
+    apply(MARGIN=2, FUN=sd, na.rm=TRUE)
   
   data_set_list[[k]] <- c(data_set_list[[k]], "folds"=kfolds[k])
 }

@@ -378,7 +378,10 @@ library(gtsummary)
 library(flextable)
 library(gt)
 library(caret)
-library(GGally)</code></pre>
+library(GGally)
+library(ggpubr)
+library(gam)
+library(splines)</code></pre>
 <div id="unc-honor-code" class="section level1">
 <h1>UNC Honor Code</h1>
 <p>First you must digitally sign the UNC Honor Code by typing in your own below:</p>
@@ -392,7 +395,7 @@ library(GGally)</code></pre>
 </div>
 <div id="section" class="section level1">
 <h1>1</h1>
-<p>The World Health Organization (WHO) gathers data on the wellness of citizens in countries around the world. In this part, you will analyze WHO data from the years 2000 to 2015 from various countries, containing life expectancy information on the country as well as socioeconomic traits of its citizens. You will try to see if variables in the dataset can be predict life expectancy.</p>
+<p>The World Health Organization (WHO) gathers data on the wellness of citizens in countries around the world. In this part, you will analyze WHO data from the years 2000 to 2015 from various countries, containing life expectancy information on the country as well as socioeconomic traits of its citizens. You will try to see if variables in the dataset can be predict life expectancy. Information on this dataset can be found at <a href="https://www.kaggle.com/kumarajarshi/life-expectancy-who" class="uri">https://www.kaggle.com/kumarajarshi/life-expectancy-who</a></p>
 </div>
 <div id="a" class="section level1">
 <h1>A</h1>
@@ -411,14 +414,14 @@ library(GGally)</code></pre>
 <h1>B</h1>
 <p>Now, we will begin to predict life expectancy. First, let’s see how well using older year’s life expectancy to predict 2015 expectancy.</p>
 <ul>
-<li>For the years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on <code>Country</code>. Then to test, predict the 2015 life expectancy for the countries in the data. Do this training and testing <strong>on the entire dataset</strong>. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for each of the three models.</li>
+<li>For the data from years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on <code>Country</code>. Then to test, predict the 2015 life expectancy for the countries in the data. Do this training and testing <strong>on the entire dataset</strong>. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for each of the three models.</li>
 <li>Are our training and testing sets independent in these cases? Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015. Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.</li>
-<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test? Use a 60:40 split structure to describe such a system. Finally, implement this system in R and report the corresponding test MSE, MAE, and <span class="math inline">\(R^2\)</span> values.</li>
+<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test? Use a 60:40 split structure to describe such a system.</li>
 </ul>
 </div>
 <div id="c" class="section level1">
 <h1>C</h1>
-<p>Now we will begin to use all of the variables for predicting life expectancy. First, we will select the data in the years 2010 and 2015 only. We will consider the following methods</p>
+<p>Now we will begin to use all of the variables for predicting life expectancy. First, we will select the data in the year 2015 only. We will consider the following methods</p>
 <ol style="list-style-type: decimal">
 <li>K-Nearest Neighbor (KNN)</li>
 <li>Linear regression</li>
@@ -426,7 +429,7 @@ library(GGally)</code></pre>
 </ol>
 <p>We will do this in the following steps:</p>
 <ol style="list-style-type: decimal">
-<li>Create a panel of scatterplots using <code>GGally</code> for all of the predictors of life expectancy in the data. By predictors, it means all variables in the data except <code>Life expectancy</code>, <code>Country</code>, and <code>Year</code>. Do this for the 2010 data only</li>
+<li>Create a correlation matrix plot using <code>corrplot(data, method=&quot;number&quot;)</code> from the <code>corrplot</code> package, for all of the predictors of life expectancy in the data. By predictors, it means all variables in the data except <code>Life expectancy</code>, <code>Country</code>, and <code>Year</code>. Do this for the 2010 data only</li>
 <li>Based on these plots, answer the following question:
 <ol style="list-style-type: lower-alpha">
 <li>Are there any noticeably high correlations between these predictors? How might this influence the results of a linear regression analysis?</li>
@@ -460,7 +463,15 @@ library(GGally)</code></pre>
 <li>LDA/QDA</li>
 <li>Penalized regression</li>
 </ol>
-<p>We will do this in the following steps: 1. Train and test 4 prediction models. We will first talk about the first 3. First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice. 2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression <strong>with all predictors</strong>, and 3) LDA or QDA based on the above, <strong>with all predictors</strong>. For each, use 10-fold CV and make sure you <strong>choose your tuning parameters within the CV procedure unbiasedly</strong>. Print the CV error rates and SE error rates for each of the 3 models. 3. We will now implement the following version of penalized regression. First, using Lasso with <code>CDR</code> as a continuous, numeric variable. Tune the penalty parameter using the default method in <code>glmnet</code>. How is this tuning done by default? Finally, based on this tuning parameter choice, train and test using 10 fold CV. 4. What is incorrect about the training, tuning, and testing method requested in the part above? Why is it incorrect and how could you adjust the procedure to be correct? <strong>You don’t need to implement this</strong> 5. What are the potential benefits of using a model selection process such as penalized regression instead of simply using all the included predictors? 6. Which of the first three models, which had the lowest CV error? Are there any noticeable differences between the models’ SEs?</p>
+<p>We will do this in the following steps:</p>
+<ol style="list-style-type: decimal">
+<li>Train and test 4 prediction models. We will first talk about the first 3. First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice.</li>
+<li>Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression <strong>with all predictors</strong>, and 3) LDA or QDA based on the above, <strong>with all predictors</strong>. For each, use 10-fold CV and make sure you <strong>choose your tuning parameters within the CV procedure unbiasedly</strong>. Print the CV error rates and SE error rates for each of the 3 models, by <code>CDR</code> class (<em>by-class error rates and SEs</em>).</li>
+<li>We will now implement the following version of penalized regression. First, using Lasso with <code>CDR</code> as a continuous, numeric variable. Tune the penalty parameter using the default method in <code>glmnet</code>. How is this tuning done by default? Finally, based on this tuning parameter choice, train and test using 10 fold CV.</li>
+<li>What is incorrect about the training, tuning, and testing method requested in the part above? Why is it incorrect and how could you adjust the procedure to be correct? <strong>You don’t need to implement this</strong></li>
+<li>What are the potential benefits of using a model selection process such as penalized regression instead of simply using all the included predictors?</li>
+<li>Which of the first three models, which had the lowest <strong>per-class</strong> CV errors? Are there any noticeable differences between the models’ <strong>per-class</strong> SEs?</li>
+</ol>
 </div>
 <div id="c-1" class="section level1">
 <h1>C</h1>
@@ -472,6 +483,32 @@ library(GGally)</code></pre>
 </div>
 <div id="section-2" class="section level1">
 <h1>3</h1>
+<p>To look at non-linearity, you work with a dataset of individuals who applied for a banking loan. Each row of the dataset contains an individual applying for a loan, with various characteristics about them, information on the overall area’s economy, as well as if they received the loan (“yes” or “no”). Your goal is to train and test an algorithm to predict if a person receives a loan based on these characteristics. See <a href="https://www.kaggle.com/henriqueyamahata/bank-marketing" class="uri">https://www.kaggle.com/henriqueyamahata/bank-marketing</a> for information on the dataset (as well the txt file <code>bank-additional-names.txt</code>).</p>
+</div>
+<div id="a-2" class="section level1">
+<h1>A</h1>
+<p>First, load up the data saved as the CSV file <code>bank_data_subset.csv</code>. Only read in the following variables: <code>age</code>, <code>job</code>, <code>marital</code>, <code>education</code>, <code>default</code>, <code>housing</code>, <code>loan</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, <code>cons.conf.idx</code>, <code>nr.employed</code>, and <code>y</code>. Then create a summary statistics table grouped by outcome (received loan) variable <code>y</code>.</p>
+<ul>
+<li>Include all variables in the data. Bold all column headers. Group statistics by <code>y</code>.</li>
+<li>Include sample size <code>N</code> as a column</li>
+<li>For continuous variables, report the means and standard deviations</li>
+<li>For categories variables, report the frequencies and percentages</li>
+<li>Test differences in these variables by year. Use F tests for continuous variables. Leave the default testing method for categorical variables</li>
+<li>You can leave the variable labels at their defaults</li>
+</ul>
+</div>
+<div id="b-2" class="section level1">
+<h1>B</h1>
+<p>Now, create a panel of scatterplots for these variables, colored by <code>y</code> using GGally. Interpret any noticeably non-zero correlations, and denote there are any signs of collinearity between these variables. Does it make sense to use correlations of the categorical variables? If so why? If not, why not?</p>
+</div>
+<div id="c-2" class="section level1">
+<h1>C</h1>
+<p>Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM). Use the <code>gam</code> package to fit these models (and make sure <code>y</code> is a factor variable!), You will consider 2 models. Both will have the following categorical predictors: <code>job</code>, <code>marital</code>, <code>education</code>, <code>default</code>, <code>housing</code>, <code>loan</code> and <code>y</code> as the outcome. The models are differentiated by how the following predictors are used: <code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code>. The other variables in the data are omitted from all prediction models.</p>
+<ol style="list-style-type: decimal">
+<li><code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code> as linear</li>
+<li><code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code> as natural cubic splines. Choose the knots using <code>df=4</code>.</li>
+</ol>
+<p>Use 5-fold CV to train and test your algorithms. Report either 1) the CV prediction accuracy and CV standard error (SE) of this accuracy <strong>or</strong> 2) the CV prediction error and CV standard error (SE) of this error for each of these two models in a labeled <code>flextable</code>, based on a 0.5 threshold. Did the addition of the nonlinear spline terms improve the model fit? Also, <strong>what quantiles of the predictors were the knots place?</strong> (Hint: using <code>ns(bank_data$age, df=4)</code> will tell you)</p>
 </div>
 
 
