@@ -391,7 +391,7 @@ library(splines)</code></pre>
 </div>
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>In this exam, you will analyze three datasets: one with a continuous outcome to predict, one with a categorical outcome, and one looking at nonlinear relationships.</p>
+<p>In this exam, you will analyze three datasets: one with a continuous outcome to predict, one with a categorical outcome, and one looking at nonlinear relationships. For all datastes, if there are any observations with missing data, please remove these observations for all analyses.</p>
 </div>
 <div id="section" class="section level1">
 <h1>1</h1>
@@ -414,9 +414,9 @@ library(splines)</code></pre>
 <h1>B</h1>
 <p>Now, we will begin to predict life expectancy. First, let’s see how well using older year’s life expectancy to predict 2015 expectancy.</p>
 <ul>
-<li>For the data from years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on <code>Country</code>. Then to test, predict the 2015 life expectancy for the countries in the data. Do this training and testing <strong>on the entire dataset</strong>. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for each of the three models.</li>
+<li>For the data from years 2000, 2005, and 2010, train a separate single linear regression model to predict <code>Life expectancy</code> solely based on <code>Country</code> as the only predictor. Then to test, predict the 2015 life expectancy for the countries in the data. Do this training and testing <strong>on the entire dataset</strong>. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for each of the three models.</li>
 <li>Are our training and testing sets independent in these cases? Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015. Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.</li>
-<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test? Use a 60:40 split structure to describe such a system.</li>
+<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test? Use a 60:40 split structure to describe such a system. Then implement this in R and report the MSE and <span class="math inline">\(R^2\)</span> in the test set. Again you will use linear regression, though the predictors will be 1) <code>year</code> and 2) <code>Status</code> only.</li>
 </ul>
 </div>
 <div id="c" class="section level1">
@@ -429,13 +429,13 @@ library(splines)</code></pre>
 </ol>
 <p>We will do this in the following steps:</p>
 <ol style="list-style-type: decimal">
-<li>Create a correlation matrix plot using <code>corrplot(data, method=&quot;number&quot;)</code> from the <code>corrplot</code> package, for all of the predictors of life expectancy in the data. By predictors, it means all variables in the data except <code>Life expectancy</code>, <code>Country</code>, and <code>Year</code>. Do this for the 2010 data only</li>
+<li>Create a correlation matrix plot using <code>corrplot(data, method=&quot;number&quot;)</code> from the <code>corrplot</code> package, for all of the predictors of life expectancy in the data. By predictors, it means all variables in the data except <code>Life expectancy</code>, <code>Country</code>, and <code>Year</code>. Do this for the 2015 data only</li>
 <li>Based on these plots, answer the following question:
 <ol style="list-style-type: lower-alpha">
 <li>Are there any noticeably high correlations between these predictors? How might this influence the results of a linear regression analysis?</li>
 </ol></li>
 <li>Print a scatterplot of life expectancy by each <strong>continuous predictor</strong>. Is there any evidence of a nonlinear relationship between the outcome and the predictors? If so which ones, and how might you incorporate this nonlinearity in a regression model</li>
-<li>Now, using only the 2010 data, train and test 3 prediction models. 1) using KNN, 2) linear regression with <strong>all predictors as linear and all included</strong>, and 3) penalized regression <strong>with all predictors included</strong>
+<li>Now, using only the 2015 data, train and test 3 prediction models. 1) using KNN, 2) linear regression with <strong>all predictors as linear and all included</strong>, and 3) penalized regression <strong>with all predictors included</strong>
 <ol style="list-style-type: lower-alpha">
 <li>When training and testing, use 10-fold cross validation</li>
 <li>When tuning KNN and penalized regression, incorporate it correctly inside the CV structure</li>
@@ -503,7 +503,7 @@ library(splines)</code></pre>
 </div>
 <div id="c-2" class="section level1">
 <h1>C</h1>
-<p>Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM). Use the <code>gam</code> package to fit these models (and make sure <code>y</code> is a factor variable!), You will consider 2 models. Both will have the following categorical predictors: <code>job</code>, <code>marital</code>, <code>education</code>, <code>default</code>, <code>housing</code>, <code>loan</code> and <code>y</code> as the outcome. The models are differentiated by how the following predictors are used: <code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code>. The other variables in the data are omitted from all prediction models.</p>
+<p>Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM). Use the <code>gam</code> package to fit these models (and make sure <code>y</code> is a factor variable!), You will consider 2 models. Both will have the following categorical predictors: <code>job</code>, <code>marital</code>, <code>education</code>, <code>default</code>, <code>housing</code>, <code>loan</code> and <code>y</code> as the outcome. The models are differentiated by how the following predictors are used: <code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code>. The other variables in the data are omitted from all models.</p>
 <ol style="list-style-type: decimal">
 <li><code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code> as linear</li>
 <li><code>age</code>, <code>emp.var.rate</code>, <code>cons.price.idx</code>, and <code>cons.conf.idx</code> as natural cubic splines. Choose the knots using <code>df=4</code>.</li>

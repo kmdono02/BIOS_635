@@ -37,7 +37,7 @@ You are allowed to use any textual resources from the course (lecture slides, le
 
 # Introduction
 
-In this exam, you will analyze three datasets: one with a continuous outcome to predict, one with a categorical outcome, and one looking at nonlinear relationships.
+In this exam, you will analyze three datasets: one with a continuous outcome to predict, one with a categorical outcome, and one looking at nonlinear relationships.  For all datastes, if there are any observations with missing data, please remove these observations for all analyses.
 
 # 1
 
@@ -57,16 +57,16 @@ First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First
 Second, plot the life expectancy as a function of year **for all of the years in data (2000-2015)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
 
 ```{r 1a}
-
+who_data <- read_csv("data/Life_Expectancy_Data.csv")
 ```
 
 # B
 
 Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2015 expectancy.
 
-- For the data from years 2000, 2005, and 2010, train a separate linear regression model to predict life expectancy solely based on `Country`.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
+- For the data from years 2000, 2005, and 2010, train a separate single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
 - Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
-- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.
+- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
 
 ```{r 1b}
 
@@ -82,11 +82,11 @@ Now we will begin to use all of the variables for predicting life expectancy.  F
 
 We will do this in the following steps:
 
-1. Create a correlation matrix plot using `corrplot(data, method="number")` from the `corrplot` package, for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2010 data only
+1. Create a correlation matrix plot using `corrplot(data, method="number")` from the `corrplot` package, for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2015 data only
 2. Based on these plots, answer the following question:
     a. Are there any noticeably high correlations between these predictors?  How might this influence the results of a linear regression analysis?
 3. Print a scatterplot of life expectancy by each **continuous predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
-4. Now, using only the 2010 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
+4. Now, using only the 2015 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
     a. When training and testing, use 10-fold cross validation
     b. When tuning KNN and penalized regression, incorporate it correctly inside the CV structure
     c. Use Lasso with penalized regression
@@ -168,7 +168,7 @@ Now, create a panel of scatterplots for these variables, colored by `y` using GG
 
 # C
 
-Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM).  Use the `gam` package to fit these models (and make sure `y` is a factor variable!),  You will consider 2 models.  Both will have the following categorical predictors: `job`, `marital`, `education`, `default`, `housing`, `loan` and `y` as the outcome.  The models are differentiated by how the following predictors are used: `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx`.  The other variables in the data are omitted from all prediction models.
+Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM).  Use the `gam` package to fit these models (and make sure `y` is a factor variable!),  You will consider 2 models.  Both will have the following categorical predictors: `job`, `marital`, `education`, `default`, `housing`, `loan` and `y` as the outcome.  The models are differentiated by how the following predictors are used: `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx`.  The other variables in the data are omitted from all models.
 
 1. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as linear
 2. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as natural cubic splines.  Choose the knots using `df=4`.
