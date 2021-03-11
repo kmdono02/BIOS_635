@@ -399,7 +399,7 @@ library(splines)</code></pre>
 </div>
 <div id="a" class="section level1">
 <h1>A</h1>
-<p>First, load up the data saved as the CSV file <code>Life_Expectancy_Data.csv</code>. First, just include rows with the years 2000, 2005, 2010, and 2015. Then create a summary statistics table grouped by year.</p>
+<p>First, load up the data saved as the CSV file <code>Life_Expectancy_Data.csv</code>. First, just include rows with the years 2000 - 2010. Then create a summary statistics table grouped by year, but only for data from the years 2000, 2005 and 2010 (for simplicity).</p>
 <ul>
 <li>Include all variables in the data, excluding <code>Country</code> and <code>Status</code>. Have <code>Life expectancy</code> be the first variable in the table. Also, bold the variable name from life expectancy and shade the row in gray.</li>
 <li>Include sample size <code>N</code> as a column</li>
@@ -408,20 +408,20 @@ library(splines)</code></pre>
 <li>Test differences in these variables by year. Use F tests for continuous variables. Leave the default testing method for categorical variables</li>
 <li>You can leave the variable labels at their defaults</li>
 </ul>
-<p>Second, plot the life expectancy as a function of year <strong>for all of the years in data (2000-2015)</strong>. Color the points by <code>Status</code>, indicating if a country is ``developing’’ or otherwise. Finally, connect the points in a line for each of the countries.</p>
+<p>Second, plot the life expectancy as a function of year <strong>for all of the years in data (2000-2010)</strong>. Color the points by <code>Status</code>, indicating if a country is ``developing’’ or otherwise. Finally, connect the points in a line for each of the countries.</p>
 </div>
 <div id="b" class="section level1">
 <h1>B</h1>
-<p>Now, we will begin to predict life expectancy. First, let’s see how well using older year’s life expectancy to predict 2015 expectancy.</p>
+<p>Now, we will begin to predict life expectancy. First, let’s see how well using older year’s life expectancy to predict 2010 expectancy.</p>
 <ul>
-<li>For the data from years 2000, 2005, and 2010, train a single linear regression model to predict <code>Life expectancy</code> solely based on <code>Country</code> as the only predictor. Then to test, predict the 2015 life expectancy for the countries in the data. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for this model.</li>
-<li>Are our training and testing sets independent in these cases? Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015. Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.</li>
-<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test? Use a 60:40 split structure to describe such a system. Then implement this in R and report the MSE and <span class="math inline">\(R^2\)</span> in the test set. Again you will use linear regression, though the predictors will be 1) <code>year</code> and 2) <code>Status</code> only.</li>
+<li>For the data from years 2000 to 2009, train a single linear regression model to predict <code>Life expectancy</code> solely based on <code>Country</code> as the only predictor. Then to test, predict the 2010 life expectancy for the countries in the data. Print out the MSE, MAE, and <span class="math inline">\(R^2\)</span> on the testing set for this model.</li>
+<li>Are our training and testing sets independent in these cases? Is there evidence of significant correlation between the life expectancies in 2000 and 2005 with life expectancy in 2010. Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.</li>
+<li>Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000 to 2009 to train and then 2010 to test? Use a 60:40 split structure to describe such a system. Then implement this in R and report the MSE and <span class="math inline">\(R^2\)</span> in the test set. Again you will use linear regression, though the predictors will be 1) <code>year</code> and 2) <code>Status</code> only.</li>
 </ul>
 </div>
 <div id="c" class="section level1">
 <h1>C</h1>
-<p>Now we will begin to use all of the variables for predicting life expectancy. First, we will select the data in the year 2015 only. We will consider the following methods</p>
+<p>Now we will begin to use all of the variables for predicting life expectancy. First, we will select the data in the year 2010 only. We will consider the following methods</p>
 <ol style="list-style-type: decimal">
 <li>K-Nearest Neighbor (KNN)</li>
 <li>Linear regression</li>
@@ -435,7 +435,7 @@ library(splines)</code></pre>
 <li>Are there any noticeably high correlations between these predictors? How might this influence the results of a linear regression analysis?</li>
 </ol></li>
 <li>Print a scatterplot of life expectancy by each <strong>continuous predictor</strong>. Is there any evidence of a nonlinear relationship between the outcome and the predictors? If so which ones, and how might you incorporate this nonlinearity in a regression model</li>
-<li>Now, using only the 2015 data, train and test 3 prediction models. 1) using KNN, 2) linear regression with <strong>all predictors as linear and all included</strong>, and 3) penalized regression <strong>with all predictors included</strong>
+<li>Now, using only the 2010 data, train and test 3 prediction models. 1) using KNN, 2) linear regression with <strong>all predictors as linear and all included</strong>, and 3) penalized regression <strong>with all predictors included</strong>
 <ol style="list-style-type: lower-alpha">
 <li>When training and testing, use 10-fold cross validation</li>
 <li>When tuning KNN and penalized regression, incorporate it correctly inside the CV structure</li>

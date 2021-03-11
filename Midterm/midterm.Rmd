@@ -45,7 +45,7 @@ The World Health Organization (WHO) gathers data on the wellness of citizens in 
 
 # A
 
-First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First, just include rows with the years 2000, 2005, 2010, and 2015.  Then create a summary statistics table grouped by year.
+First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First, just include rows with the years 2000 - 2010.  Then create a summary statistics table grouped by year, but only for data from the years 2000, 2005 and 2010 (for simplicity).
 
 - Include all variables in the data, excluding `Country` and `Status`.  Have `Life expectancy` be the first variable in the table.  Also, bold the variable name from life expectancy and shade the row in gray.
 - Include sample size `N` as a column
@@ -54,7 +54,7 @@ First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First
 - Test differences in these variables by year.  Use F tests for continuous variables.  Leave the default testing method for categorical variables
 - You can leave the variable labels at their defaults
 
-Second, plot the life expectancy as a function of year **for all of the years in data (2000-2015)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
+Second, plot the life expectancy as a function of year **for all of the years in data (2000-2010)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
 
 ```{r 1a}
 who_data <- read_csv("data/Life_Expectancy_Data.csv")
@@ -62,11 +62,11 @@ who_data <- read_csv("data/Life_Expectancy_Data.csv")
 
 # B
 
-Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2015 expectancy.
+Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2010 expectancy.
 
-- For the data from years 2000, 2005, and 2010, train a single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2015 life expectancy for the countries in the data.  Print out the MSE, MAE, and $R^2$ on the testing set for this model.
-- Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
-- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
+- For the data from years 2000 to 2009, train a single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2010 life expectancy for the countries in the data.  Print out the MSE, MAE, and $R^2$ on the testing set for this model.
+- Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000 and 2005 with life expectancy in 2010.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
+- Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000 to 2009 to train and then 2010 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
 
 ```{r 1b}
 
@@ -74,7 +74,7 @@ Now, we will begin to predict life expectancy.  First, let's see how well using 
 
 # C
 
-Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the year 2015 only.  We will consider the following methods
+Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the year 2010 only.  We will consider the following methods
 
 1. K-Nearest Neighbor (KNN)
 2. Linear regression
@@ -86,7 +86,7 @@ We will do this in the following steps:
 2. Based on these plots, answer the following question:
     a. Are there any noticeably high correlations between these predictors?  How might this influence the results of a linear regression analysis?
 3. Print a scatterplot of life expectancy by each **continuous predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
-4. Now, using only the 2015 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
+4. Now, using only the 2010 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
     a. When training and testing, use 10-fold cross validation
     b. When tuning KNN and penalized regression, incorporate it correctly inside the CV structure
     c. Use Lasso with penalized regression
