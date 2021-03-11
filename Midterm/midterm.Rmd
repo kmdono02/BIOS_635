@@ -64,7 +64,7 @@ who_data <- read_csv("data/Life_Expectancy_Data.csv")
 
 Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2015 expectancy.
 
-- For the data from years 2000, 2005, and 2010, train a separate single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2015 life expectancy for the countries in the data.  Do this training and testing **on the entire dataset**.  Print out the MSE, MAE, and $R^2$ on the testing set for each of the three models.
+- For the data from years 2000, 2005, and 2010, train a single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2015 life expectancy for the countries in the data.  Print out the MSE, MAE, and $R^2$ on the testing set for this model.
 - Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000, 2005, and 2010 with life expectancy in 2015.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
 - Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000, 2005, and 2010 to train and then 2015 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
 
