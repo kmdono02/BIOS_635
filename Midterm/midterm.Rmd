@@ -22,6 +22,7 @@ library(GGally)
 library(ggpubr)
 library(gam)
 library(splines)
+library(corrplot)
 ```
 
 # UNC Honor Code
@@ -57,15 +58,15 @@ First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First
 Second, plot the life expectancy as a function of year **for all of the years in data (2000-2010)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
 
 ```{r 1a}
-who_data <- read_csv("data/Life_Expectancy_Data.csv")
+
 ```
 
 # B
 
 Now, we will begin to predict life expectancy.  First, let's see how well using older year's life expectancy to predict 2010 expectancy.
 
-- For the data from years 2000 to 2009, train a single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2010 life expectancy for the countries in the data.  Print out the MSE, MAE, and $R^2$ on the testing set for this model.
-- Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000 and 2005 with life expectancy in 2010.  Print these correlations (3 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals.
+- For the data from years 2000 to 2009, train a single linear regression model to predict `Life expectancy` solely based on `Country` as the only predictor.  Then to test, predict the 2010 life expectancy for the countries in the data.  Print out the MSE, MAE, and $R^2$ on the testing set for this model.  **NOTE: remove countries Ireland and Namibia from the 2010 data in this step**
+- Are our training and testing sets independent in these cases?  Is there evidence of significant correlation between the life expectancies in 2000 and 2005 with life expectancy in 2010.  Print these correlations (2 of them) in a formatted table include the correlation estimates, p-values, and confidence intervals. **NOTE: Since the same countries won't necessarily be in both the 2000 and 2010 data, you compute the correlations using data from only countries with both 2000 and 2010 life expectancies.  Same goes for the 2000 and 2005 correlations/**
 - Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000 to 2009 to train and then 2010 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
 
 ```{r 1b}
@@ -74,7 +75,7 @@ Now, we will begin to predict life expectancy.  First, let's see how well using 
 
 # C
 
-Now we will begin to use all of the variables for predicting life expectancy.  First, we will select the data in the year 2010 only.  We will consider the following methods
+Now we will begin to use all of the variables for predicting life expectancy.  **We will select the data in the year 2010 only for this entire part**.  We will consider the following methods
 
 1. K-Nearest Neighbor (KNN)
 2. Linear regression
@@ -82,19 +83,19 @@ Now we will begin to use all of the variables for predicting life expectancy.  F
 
 We will do this in the following steps:
 
-1. Create a correlation matrix plot using `corrplot(data, method="number")` from the `corrplot` package, for all of the predictors of life expectancy in the data.  By predictors, it means all variables in the data except `Life expectancy`, `Country`, and `Year`.  Do this for the 2015 data only
+1. Create a correlation matrix plot using `corrplot(data, method="number")` from the `corrplot` package, for all of the **numeric** predictors of life expectancy in the data.  By numeric predictors, it means all variables in the data except `Life expectancy`, `Country`, `Status`, and `Year`.
 2. Based on these plots, answer the following question:
     a. Are there any noticeably high correlations between these predictors?  How might this influence the results of a linear regression analysis?
-3. Print a scatterplot of life expectancy by each **continuous predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
-4. Now, using only the 2010 data, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included**
+3. Print a scatterplot of life expectancy by each **continuous numeric predictor**.  Is there any evidence of a nonlinear relationship between the outcome and the predictors?  If so which ones, and how might you incorporate this nonlinearity in a regression model
+4. Again using **only the 2010 data**, train and test 3 prediction models.  1) using KNN, 2) linear regression with **all predictors as linear and all included**, and 3) penalized regression **with all predictors included** (i.e. all variables except `Life expectancy`, `Country`, `Year`)
     a. When training and testing, use 10-fold cross validation
     b. When tuning KNN and penalized regression, incorporate it correctly inside the CV structure
     c. Use Lasso with penalized regression
     d. Print out the CV error for each of the three methods and the standard errors of the CV error
-5. Look at the predictors that were removed from the Lasso regression.  What are the coefficient estimates and p-values for these predictors from the linear regression model?  Does it make sense that these predictors were removed based on this information?
+5. Look at the predictors that were removed from the Lasso regression.  What are the coefficient estimates and p-values for these predictors from the linear regression model?  Does it make sense that these predictors were removed based on this information?  **NOTE: You can do this by re-fitting the Lasso and linear regression models to the entire dataset again and looking at the corresponding output (or incorporate the CV results, either is fine)**
 6. What are some of the positives and negatives of using a more nonparametric method like KNN compared to linear regression?
 
-```{r 1c}
+```{r 1c, fig.width = 14, fig.height = 10}
 
 ```
 
@@ -104,7 +105,7 @@ Now let's consider predicting Alzheimer's diagnosis based on magnetic resonance 
 
 # A
 
-First, load in the data contained in `oasis_longitudinal.csv`.  Then, only keep observations with `visit=1` and re-group `CDR` so that it equals 1+ if `CDR` $\geq 0.5$.  Finally, create a summary statistic table by `CDR`.  Include all of the items mentioned in 1A.  Include all variable except `Subject ID`, `MRI ID`, and `Group`.  These 3 variables can be removed from the dataset.  Treat `SES` as categorical.  Also, compute a panel of scatterplots using `GGally`, colored by `CDR` group.
+First, load in the data contained in `oasis_longitudinal.csv`.  Then, only keep observations with `visit=1` and re-group `CDR` so that it equals 1+ if `CDR` $\geq 0.5$.  Finally, create a summary statistic table by `CDR`.  Include all of the items mentioned in 1A.  Include all variables except `Subject ID`, `MRI ID`, and `Group`.  These 3 variables can be removed from the dataset.  Treat `SES` as categorical.  Also, compute a panel of scatterplots using `GGally`, colored by `CDR` group.
 
 ```{r 2a}
 
@@ -121,12 +122,12 @@ For predicting `CDR` we will consider the following methods:
 
 We will do this in the following steps:
 
-1. Train and test 4 prediction models.  We will first talk about the first 3.  First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice.
-2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression **with all predictors**, and 3) LDA or QDA based on the above, **with all predictors**.  For each, use 10-fold CV and make sure you **choose your tuning parameters within the CV procedure unbiasedly**.  Print the CV error rates and SE error rates for each of the 3 models, by `CDR` class (*by-class error rates and SEs*).
-3. We will now implement the following version of penalized regression.  First, using Lasso with `CDR` as a continuous, numeric variable.  Tune the penalty parameter using the default method in `glmnet`.  How is this tuning done by default?  Finally, based on this tuning parameter choice, train and test using 10 fold CV.
+1. Train and test 4 prediction models.  We will first talk about the first 3.  First, based on the results in 2A, determine if LDA or QDA would be more appropriate and explain why you made such a choice.  **NOTE: Any variables which have the same values for all observations (see summary statistics table in 2A should NOT be included as predictors in your analyses for the rest of this part).**
+2. Now, train and test the following 3 prediction models: 1) KNN, 2) logistic regression **with all predictors**, and 3) LDA or QDA based on the above, **with all predictors**.  For each, use 10-fold CV and make sure you **choose your tuning parameters within the CV procedure unbiasedly**.  Print the CV error rates and SE error rates for each of the 3 models, by `CDR` class (*by-class error rates and SEs*).  **NOTE: Collapse variable `SES` into 1, 2, 3, 4 where those in category 5 are instead also in category 4.**
+3. We will now implement the following version of penalized regression.  First, using Lasso with `CDR` **in it original form as a continuous, numeric variable (0, 0.5, 2)**.  Tune the penalty parameter **based on the entire dataset** by using the default method in `cv.glmnet` and selecting the lambda which minimizes the mean squared error (`lambda.min`).  How is this tuning done by default?  Finally, based on this tuning parameter choice, train and test using 10 fold CV.
 4. What is incorrect about the training, tuning, and testing method requested in the part above?  Why is it incorrect and how could you adjust the procedure to be correct?  **You don't need to implement this**
 5. What are the potential benefits of using a model selection process such as penalized regression instead of simply using all the included predictors?
-6. Which of the first three models, which had the lowest **per-class** CV errors?  Are there any noticeable differences between the models' **per-class** SEs?
+6. Of the first three models, which had the lowest **per-class** CV errors?  Are there any noticeable differences between the models' **per-class** SEs?
 
 ```{r 2b}
 
@@ -134,7 +135,7 @@ We will do this in the following steps:
 
 # C
 
-Recall we removed all visits except the first one in 2A.  Consider using all of the visits to predict `CDR`.  You will not do the analysis but will discuss about some proposed analysis ideas.  Critique these ideas and identify why they would be incorrect.  For the training and testing data partitioning method suggested, explain how you would fix this method.
+Recall we removed all visits except the first one in 2A.  Consider using all of the visits to predict `CDR` as a binary variable **(0 or 1+ as defined in 2A)**.  You will not do the analysis but will discuss about some proposed analysis ideas.  Critique these ideas and identify why they would be incorrect.  For the training and testing data partitioning method suggested, explain how you would fix this method.
 
 1. Use logistic regression or LDA/QDA on data which includes multiple visits for some subjects.  We will train and test on a 60:40 split of such a dataset.
 2. Do the same, but train and test using 10-fold CV on the whole dataset.
@@ -168,10 +169,10 @@ Now, create a panel of scatterplots for these variables, colored by `y` using GG
 
 # C
 
-Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM).  Use the `gam` package to fit these models (and make sure `y` is a factor variable!),  You will consider 2 models.  Both will have the following categorical predictors: `job`, `marital`, `education`, `default`, `housing`, `loan` and `y` as the outcome.  The models are differentiated by how the following predictors are used: `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx`.  The other variables in the data are omitted from all models.
+Finally, we will train and test a logistic regression algorithm allowing for nonlinearity using generalized additive models (GAM).  Use the `gam` package to fit these models (and make sure `y` is a factor variable!),  You will consider 2 models.  Both will have the following categorical predictors: `job`, `marital`, `education`, `default`, `housing`, `loan` and `y` as the outcome.  The models are differentiated by how the following predictors are used: `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx`.  The other variables in the data are omitted from all models.  **NOTE: Any variables with the same values for all observations should be omitted from all models as well.**
 
 1. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as linear
-2. `age`, `emp.var.rate`, `cons.price.idx`, and `cons.conf.idx` as natural cubic splines.  Choose the knots using `df=4`.
+2. `age`, `cons.price.idx`, and `cons.conf.idx` as natural cubic splines (**leave `emp.var.rate` as linear**).  Choose the knots using `df=4`.
 
 Use 5-fold CV to train and test your algorithms.  Report either 1) the CV prediction accuracy and CV standard error (SE) of this accuracy **or** 2) the CV prediction error and CV standard error (SE) of this error for each of these two models in a labeled `flextable`, based on a 0.5 threshold.  Did the addition of the nonlinear spline terms improve the model fit?  Also, **what quantiles of the predictors were the knots place?**  (Hint: using `ns(bank_data$age, df=4)` will tell you)
 
