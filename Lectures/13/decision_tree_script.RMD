@@ -1,0 +1,221 @@
+---
+title: "Decision Trees in R"
+author: "BIOS 635"
+date: "3/25/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+```{r}
+cancer_data_reg <- read_csv("../data/cancer_reg.csv") %>%
+  select(-avgAnnCount, -avgDeathsPerYear, -incidenceRate, -Geography) %>%
+  drop_na()
+
+heart_disease_data <- read_csv("../data/heart_disease/Correct_Dataset.csv",
+                               na = c("", "NA", "?"))  %>%
+  mutate(heart_disease = 
+           relevel(factor(ifelse(Target>0, "Yes", "No")), 
+                   ref = "No")) %>%
+  select(-X1, -Target) %>%
+  drop_na()
+```
+
+# Decision tree
+## Regression
+```{r}
+# Create 60:40 split
+set.seed(123)
+tt_indices <- createDataPartition(y=cancer_data_reg$TARGET_deathRate,
+                                  p=0.6, list=FALSE)
+cancer_data_train <- cancer_data_reg[tt_indices,]
+cancer_data_test <- cancer_data_reg[-tt_indices,]
+
+# Fit tree
+reg_tree <- rpart(TARGET_deathRate~., cancer_data_train)
+
+# Visualize decision rule
+par(xpd = NA) # otherwise on some devices the text is clipped
+plot(reg_tree)
+text(reg_tree, digits=3)
+print(reg_tree, digits=3)
+
+# Evaluate on test set
+cancer_data_test$big_tree_predict <- predict(reg_tree, newdata = cancer_data_test)
+postResample(pred=cancer_data_test$big_tree_predict, 
+             obs=cancer_data_test$TARGET_deathRate)
+
+# Now prune tree 
+set.seed(123)
+reg_tree_pruned <- train(TARGET_deathRate ~., data = cancer_data_train, method = "rpart",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10)
+
+# Plot model accuracy vs different values of cp (complexity parameter)
+plot(reg_tree_pruned)
+
+# Plot the final tree model
+par(xpd = NA) # Avoid clipping the text in some device
+plot(reg_tree_pruned$finalModel)
+text(reg_tree_pruned$finalModel,  digits = 3)
+
+# Print out rule
+print(reg_tree_pruned$finalModel, digits = 3)
+
+# Evaluate on test set
+cancer_data_test$prune_tree_predict <- predict(reg_tree_pruned, newdata = cancer_data_test)
+postResample(pred=cancer_data_test$prune_tree_predict, 
+             obs=cancer_data_test$TARGET_deathRate)
+```
+
+## Classification
+```{r}
+# Create 60:40 split
+set.seed(123)
+tt_indices <- createDataPartition(y=heart_disease_data$heart_disease,
+                                  p=0.6, list=FALSE)
+hd_data_train <- heart_disease_data[tt_indices,]
+hd_data_test <- heart_disease_data[-tt_indices,]
+
+# Fit tree
+reg_tree <- rpart(heart_disease~., hd_data_train)
+
+# Visualize decision rule
+par(xpd = NA) # otherwise on some devices the text is clipped
+plot(reg_tree)
+text(reg_tree, digits=3)
+print(reg_tree, digits=3)
+
+# Evaluate on test set
+p_thresh <- 0.5
+hd_data_test$big_tree_predict <- 
+  ifelse(predict(reg_tree, newdata = hd_data_test)[,"Yes"]>p_thresh, "Yes", "No")
+postResample(pred=hd_data_test$big_tree_predict, 
+             obs=hd_data_test$heart_disease)
+
+# Now prune tree 
+set.seed(123)
+reg_tree_pruned <- train(heart_disease ~., data = hd_data_train, method = "rpart",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10)
+
+# Plot model accuracy vs different values of cp (complexity parameter)
+plot(reg_tree_pruned)
+
+# Plot the final tree model
+par(xpd = NA) # Avoid clipping the text in some device
+plot(reg_tree_pruned$finalModel)
+text(reg_tree_pruned$finalModel,  digits = 3)
+
+# Print out rule
+print(reg_tree_pruned$finalModel, digits = 3)
+
+# Evaluate on test set
+hd_data_test$prune_tree_predict <-
+  ifelse(predict(reg_tree_pruned, 
+                 newdata = hd_data_test, type = "prob")[,"Yes"]>p_thresh, "Yes", "No")
+
+postResample(pred=hd_data_test$prune_tree_predict, 
+             obs=hd_data_test$heart_disease)
+```
+
+# Random forest
+## Regression
+```{r}
+# Create 60:40 split
+set.seed(123)
+tt_indices <- createDataPartition(y=cancer_data_reg$TARGET_deathRate,
+                                  p=0.6, list=FALSE)
+cancer_data_train <- cancer_data_reg[tt_indices,]
+cancer_data_test <- cancer_data_reg[-tt_indices,]
+
+# Fit random forest
+reg_rf <- randomForest(TARGET_deathRate~., cancer_data_train)
+
+# Look at RF OOB MSE
+reg_rf
+plot(reg_rf)
+
+# Try different number of predictors at split
+reg_rf_preds_tune <- list() 
+reg_rf_oob_mses <- list()
+
+pred_no <- 1:(dim(cancer_data_train)[2]-1)
+for(i in 1:length(pred_no)){
+  reg_rf_preds_tune[[i]] <- randomForest(TARGET_deathRate~., cancer_data_train,
+                                         ntree=100, mtry=pred_no[i])
+  reg_rf_oob_mses[[i]] <- data.frame("preds_no"=pred_no[i],
+                                     "oob_mse"=reg_rf_preds_tune[[i]]$mse[100])
+}
+reg_rf_oob_mses_df <- do.call("rbind", reg_rf_oob_mses)
+reg_rf_oob_mses_df
+
+# Refit on training using best no. of predictors at split
+best_mse <- which(reg_rf_oob_mses_df$oob_mse==min(reg_rf_oob_mses_df$oob_mse))
+reg_rf <- randomForest(TARGET_deathRate~., cancer_data_train,
+                       ntree=100, mtry=reg_rf_oob_mses_df$preds_no[best_mse])
+
+# Evaluate on test set
+cancer_data_test$rf_predict <- predict(reg_rf, newdata = cancer_data_test)
+postResample(pred=cancer_data_test$rf_predict, 
+             obs=cancer_data_test$TARGET_deathRate)
+```
+
+## Classification
+```{r}
+# Create 60:40 split
+set.seed(123)
+tt_indices <- createDataPartition(y=heart_disease_data$heart_disease,
+                                  p=0.6, list=FALSE)
+hd_data_train <- heart_disease_data[tt_indices,]
+hd_data_test <- heart_disease_data[-tt_indices,]
+
+# Fit random forest
+reg_rf <- randomForest(heart_disease~., hd_data_train, ntree=1000)
+
+# Look at RF OOB MSE
+reg_rf
+plot(reg_rf)
+legend("top", colnames(reg_rf$err.rate),col=1:3,cex=0.8,fill=1:3)
+
+# In table form
+reg_rf$err.rate
+reg_rf$confusion
+reg_rf$votes
+
+# Try different number of predictors at split
+reg_rf_preds_tune <- list() 
+reg_rf_oob_errors <- list()
+
+pred_no <- 1:(dim(hd_data_train)[2]-1)
+for(i in 1:length(pred_no)){
+  reg_rf_preds_tune[[i]] <- randomForest(heart_disease~., hd_data_train,
+                                         ntree=800, mtry=pred_no[i])
+  reg_rf_oob_errors[[i]] <- data.frame("preds_no"=pred_no[i],
+                                     "oob_error"=reg_rf_preds_tune[[i]]$err.rate[800, 1])
+}
+reg_rf_oob_error_df <- do.call("rbind", reg_rf_oob_errors)
+reg_rf_oob_error_df
+
+# Refit on training using best no. of predictors at split
+best_error <- which(reg_rf_oob_error_df$oob_error==min(reg_rf_oob_error_df$oob_error))
+reg_rf <- randomForest(heart_disease~., hd_data_train,
+                       ntree=100, mtry=reg_rf_oob_error_df$preds_no[best_error])
+
+# Evaluate on test set
+hd_data_test$rf_predict <- 
+  ifelse(predict(reg_rf, newdata = hd_data_test, type="prob")[,"Yes"]>0.5, "Yes", "No")
+postResample(pred=hd_data_test$rf_predict, 
+             obs=hd_data_test$heart_disease)
+```
