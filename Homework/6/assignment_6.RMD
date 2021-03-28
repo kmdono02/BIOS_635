@@ -1,0 +1,104 @@
+---
+title: "Homework 6"
+subtitle: "BIOS 635"
+author: "..."
+date: "3/27/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+# Introduction
+
+In this assignment, you will practice using decision tree-based methods (CART and random forest) to create prediction algorithms.  We will use the following datasets seen in lecture.
+
+1. cancer_reg.csv (outcome = `TARGET_deathRate`)
+  - Data on cancer fatality rates by county in the US (continuous outcome)
+
+2. Correct_Dataset.csv (outcome = `Target`)
+  - Data on heart disease occurrence for sample of people (categorical outcome)
+  
+You can find metadata on these datasets from file `cancer_data_desc.docx` and https://archive.ics.uci.edu/ml/datasets/heart+disease.  For simplicity, please remove all missing observations from the datasets when they are read in.
+
+# 1
+# A 
+First read in the cancer fatality rate dataset.  Remove the following values from the data: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, and `Geography`.  Then create summary statistics values for all variables in the dataset, group by if the county's fatality rate is above or below the median in the data.
+
+- Per usual, include:
+  - Sample size
+  - Means and SDs for all continuous variables and counts/percentages for all categorical variables
+  - Include p-values from an ANOVA/T-test for differences in the variables by above/below the median fatality rate
+  - Bold all header labels
+
+```{r}
+
+```
+
+# B 
+Now, try to predict `TARGET_deathRate` using a single decision tree (CART).  First, consider growing a tree based on the default settings with **all other variables in the dataset as the predictors**.  That is, you **won't do any pruning**.  Train and test the CART algorithm using 5 fold CV, reporting the CV MSE and CV MSE standard error (SE). 
+
+```{r}
+
+```
+
+# C 
+Now you will again use CART to create the algorithm, however this time you will prune the tree using a chosen *complexity parameter* ($\alpha$ from lecture).  You will tune this parameter in two ways:
+
+1. Using 5 fold CV **on the entire dataset**
+2. Using 5 fold CV **on the training dataset in your train and test procedure**.
+
+For both methods, you will train and test the CART algorithm using 5 fold CV.  For tuning method 1, you will fix the tuning parameter throughout this train and test CV process based on the entire dataset results.  For method 2, **you will select a different tuning parameter specific to the training dataset in a given CV iteration**.  From both tuning methods, report the corresponding CV MSE and CV MSE SE after the 5 fold CV.  How are these metrics different between the two methods?  Which tuning method is unbiased and why?
+
+```{r}
+
+```
+
+# D
+Finally, you will consider bagging and random forest.  
+
+## i
+First, describe the differences between how CART, bagged decision trees, and random forest train algorithms.  How are bagging and random forest related and how does random forest ''decorrelate'' the trees compared to bagging?  How are bagging and random forest examples of an *ensemble learning algorithm*?  What theoretical benefits do ensemble algorithms often provide?
+
+```{r}
+
+```
+
+## ii
+Now, train and test a random forest algorithm.  First, detail the tuning parameters for a random forest algorithm.  For these tuning parameters, consider the following values for your grid search to select the parameter values: trees = $\{50, 250, 500\}$ and $m = \{p/2, \sqrt{p}, p\}$.  Use the **out of bag MSE in the training set** to choose the ''best'' tuning parameters for a given training set.  Use 5 fold CV to train and test the algorithm.  Correctly implement the described tuning process into your CV procedure.  **Which value for $m$ denotes a bagged trees algorithm?**
+
+```{r}
+
+```
+
+### iii
+Print the CV MSE and CV MSE SE from your random forest procedure, along with these same metrics from your unpruned CART algorithm and pruned CART algorithm in a `flextable`.  Compare and contrast these values.
+
+```{r}
+
+```
+
+# 2
+# A
+Read in the heart disease dataset.  **Note that missing values in the data are denoted by an empty cell, string "NA" and string "?".  Use the `na` argument to make sure R correctly denotes these values as NA.**  Also, re-group the outcome `Target` so that those equal to group 3 or 4 are equal to 3.
+
+```{r}
+
+```
+
+# B
+Now, train and test a random forest algorithm. Tune the algorithm using a grid search.  For these tuning parameters, consider the following values for your grid search to select the parameter values: trees = $\{50, 250, 500\}$ and $m = \{p/2, \sqrt{p}, p\}$.  Use the **out of bag overall accuracy in the training set** to choose the ''best'' tuning parameters for a given training set.  Use 5 fold CV to train and test the algorithm.  Correctly implement the described tuning process into your CV procedure.  Print the CV per-class accuracy (or error) and CV SE for these metrics, from your random forest procedure, in a `flextable`.  **Why would reporting the out of bag error/accuracy instead of implementing a holdout/CV train test procedure result in biased metrics?**.
+
+```{r}
+
+```
