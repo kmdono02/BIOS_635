@@ -1,0 +1,102 @@
+---
+title: "Homework 7"
+subtitle: "BIOS 635"
+author: "..."
+date: "4/3/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(e1071)
+```
+
+# Introduction
+
+In this assignment, you will practice using support vector machines (SVMs) to create prediction algorithms.  We will use the following datasets seen in lecture (as used with HW 6).
+
+1. cancer_reg.csv (outcome = `TARGET_deathRate`)
+  - Data on cancer fatality rates by county in the US (continuous outcome)
+
+2. Correct_Dataset.csv (outcome = `Target`)
+  - Data on heart disease occurrence for sample of people (categorical outcome)
+  
+You can find metadata on these datasets from file `cancer_data_desc.docx` and https://archive.ics.uci.edu/ml/datasets/heart+disease.  For simplicity, please remove all missing observations from the datasets when they are read in.
+
+# 1
+# A 
+First read in the cancer fatality rate dataset.  Remove the following values from the data: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, `binnedInc` and `Geography`.  Try to predict `TARGET_deathRate` using support vector regression (SVR).  First, consider a linear kernel.  Train and test a linear SVR using all the other variables in the dataset with 5 fold CV.  **Within the CV procedure**, tune the SVR parameters within the training sets only.  Use the default method to tune with `tune` from the `e1071` package.  **What are the parameters you have to tune for a linear SVR?  Also, what is the default method `tune` uses to tune (i.e. how does it select the tuning datasets, bootstrapping, CV, etc.)?  What metric is used to select the ''best'' tuning parameters?**  For these parameters, create a grid of values to evaluate when tuning by selecting 5 values for each parameter.  Finally, report the following:
+
+1. CV error and CV error standard error (SE) for the tuned linear SVR
+2. CV error and CV error SE for the **linear regression model** trained and tested in your 5 fold CV procedure with the same set of predictors as your linear SVR
+
+```{r}
+set.seed(12)
+```
+
+# B 
+Now, consider using a nonlinear SVR.  Specifically, due to its flexibility, you will use a **radial basis** kernel.  You will use all of the same training, tuning, and testing procedures for this algorithm as you used for 1A.  The parameters you will tune are $\gamma$, cost $C$, and $\epsilon$.  Include the following in your response:
+
+1. Tune all three parameters by creating grid with the following values: $\gamma=\{0.001, 0.05, 0.1\}$, $C=\{1, 2, 3\}$, and $\epsilon=\{0.1, 0.5, 1.0\}$.  This can be easily done using `tune`.
+2. Report the same metrics as done in 1A (you don't need to fit any regression model for 1B)
+3. Compare the error rates in 1A and 1B between all three models (linear SVR, linear regression, nonlinear SVR).  Do you see any improvement between the linear and nonlinear SVR algorithms?  
+4. How do linear SVR and linear regression differ as methods (i.e. not comparing the results, explaining the difference in how they are formulated)?
+5. Right down the formula for the radial basis kernel (see lecture slides).  Consider $\gamma=1/\sigma$ (i.e. for a $\gamma=0.5$, this is equivalent to $\sigma=2$).  Interpret what $\sigma$ (and thus $\gamma$, though it is easier to interpret with respect to $\sigma$) is doing in the kernel function.
+
+**Hint for 1B part 5**: $||X-Y||^2$ is simply a measure of ''distance'' between predictors $X$ and $Y$
+
+```{r}
+set.seed(12)
+
+```
+
+# 2
+# A
+Read in the heart disease dataset.  **Note that missing values in the data are denoted by an empty cell, string "NA" and string "?".  Use the `na` argument to make sure R correctly denotes these values as NA.**  Also, re-group the outcome `Target` so that those greater then 0 equal 1 and treat this as categorical (two classes: 0, 1).
+
+Now, train and test a SVM algorithm to predict `Target`.  Use a linear kernel, and do the same process as was used in 1A when training, tuning, and testing.  Report the following:
+
+1. CV sensitivity and specificity and corresponding CV SEs for the tuned linear SVM
+2. CV sensitivity and specificity and corresponding CV SEs for the **logistic regression** model using a 0.5 threshold, using all other variables in the dataset as predictors
+
+Additionally, answer the following questions:
+
+1. The dataset contains categorical predictors.  How does SVM handle these when creating the algorithm?  What limitations does this pose when creating the algorithm?
+2. How are logistic regression and linear SVM related in relation to their respective **loss functions?**  What is meant by a ''loss function'' and how is it related to the machine learning framework of training an algorithm?
+
+```{r}
+set.seed(12)
+
+```
+
+# B
+Now, consider creating a nonlinear SVM.  In this case, you will use a polynomial kernel. Again, use the same training, tuning, and testing methods used before.  
+
+1. Write down the polynomial kernel.  What are the tuning parameters for a polynomial kernel?  Also interpret these parameters.  
+
+2. Based on this, you will consider the following parameter values for your grid when tuning: cost $C=\{1, 2, 3\}$, $\gamma=\{0.001, 0.05, 0.1\}$, and $d=\{2,3\}$.  **What metric is used to select the ''best'' tuning parameters?**  What additional tuning parameter is not included in this grid, and what is it being fixed at?  Report the CV sensitivity and specificity and corresponding CV SEs for the tuned nonlinear SVM.
+
+3. Finally, compare the CV results between the linear and nonlinear SVMs.  Did the more complicated SVM kernel improve the performance?
+```{r}
+set.seed(12)
+
+```
+
+# C
+Now, you answer some questions about SVM as a method (all of these are just written responses, no code or analysis needed):
+
+## i
+Consider the case where you have a large number of predictors (consider $p>n$).  Why would SVM work in this case while linear or logistic regression have trouble training an algorithm?  What is an alternative regression method one could use to deal with this large number of predictors issue?
+
+## ii
+Nonlinear kernels have a large number of tuning parameters compared to linear SVM and penalized regression.  Recall we use a grid search to tune SVM.  What complications does this create when training and tuning?  Why might this cause a nonlinear SVM to preform worse then a linear prediction method, even if a nonlinear method may predict better?
+
+## iii
+Recall when comparing SVM to logistic regression, we used a 0.5 threshold.  Why might this not be a fair comparison between the two methods (focus on the threshold)?  How might you choose a threshold in a data-driven way so that you are comparing the ''best'' logistic regression to SVM?  Why would this be a more accurate comparison?
