@@ -1,0 +1,205 @@
+---
+title: "Advanced R Coding"
+author: "BIOS 635"
+date: "4/1/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(randomForest)
+library(e1071)
+```
+
+```{r}
+cancer_data_reg <- read_csv("../data/cancer_reg.csv") %>%
+  select(-avgAnnCount, -avgDeathsPerYear, -incidenceRate, -Geography, -binnedInc) %>%
+  drop_na()
+
+heart_disease_data <- read_csv("../data/heart_disease/Correct_Dataset.csv",
+                               na = c("", "NA", "?"))  %>%
+  mutate(heart_disease = 
+           relevel(factor(ifelse(Target>0, "Yes", "No")), 
+                   ref = "No")) %>%
+  select(-X1, -Target) %>%
+  drop_na()
+```
+
+# Indexing objects
+- Vectors
+  - Created by `c(...)`
+  - Indexed by `[]`
+  - **All values must be same type**
+- Matrices
+  - Created by `matrix(...)`
+  - Indexed by `[,]`
+  - **All values must be same type**
+- Lists
+  - Created by `list()`
+  - Indexed by `[]` or `[[]]` or `x$...`
+  - Elements **can be of arbitrary types**
+- Data frame
+  - Created by `data.frame()`
+  - Are **actually just lists**
+
+```{r, error=TRUE}
+x <- c(1,2,3)
+x[1]
+
+x <- list(c(1,2,3), c(4,5,6))
+x[1]
+x[[1]]
+
+typeof(cancer_data_reg)
+cancer_data_reg[1]
+cancer_data_reg[[1]]
+cancer_data_reg$TARGET_deathRate
+
+# Objects can be dynamically expanded inside loops
+x <- list()
+y <- c()
+
+for(i in 1:10){
+  x[[i]] <- i
+  y[i] <- i
+}
+
+# Can also name elements
+names(x)
+names(x) <- c("a", "b", "c")
+x$a
+```
+
+# Nested Loops
+- Can include loops **within loops**
+- Various ways to keep track of indices, for example **creating a counter**
+
+```{r, error=TRUE}
+x <- list()
+for(i in 1:10){
+  print(i)
+}
+
+for(i in 1:10){
+  paste0("i = ", i)
+  for(j in 1:10){
+    paste0("j = ", j)
+  }
+}
+
+counter <- 1
+
+for(i in 1:10){
+  paste0("i = ", i)
+  for(j in 1:10){
+    paste0("j = ", j)
+    x[[counter]] <- i+j
+    
+    counter <- counter+1
+  }
+}
+```
+
+# Functional Programming
+- Functions are procedures programmed in R which dynamically run based on chosen input
+- Have been working with functions from start of class (`train` for example)
+- We can create our own functions to avoid repetitive code
+
+```{r, error=TRUE}
+# Suppose we want to run a KNN fitting method where we train, tune, test, and saved the results
+rmse <- list()
+tt_indices <- createFolds(y=cancer_data_reg$TARGET_deathRate, k=5)
+for(i in 1:length(tt_indices)){
+  cancer_train <- cancer_data_reg[-tt_indices[[i]],]
+  cancer_test <- cancer_data_reg[tt_indices[[i]],]
+  
+  # Train and tune KNN
+  algo_fit <- train(TARGET_deathRate~., data = cancer_train, preProcess = c("center", "scale"),
+                    tuneLength = 10, trControl = trainControl(method="cv", number=5), method="knn")
+  
+  # Test on fold
+  test_predict <- predict(algo_fit, newdata = cancer_test)
+  rmse[[i]] <- postResample(pred = test_predict, obs = cancer_test$TARGET_deathRate)
+}
+
+all_results <- do.call("rbind", rmse)
+cv_estimate <- apply(all_results, 2, mean)
+cv_se <- apply(all_results, 2, sd)
+final_results <- c("cv_rmse"=cv_estimate, "cv_se"=cv_se)
+final_results
+
+# What if we want to change the method?  Need to rewrite all of this code and just one thing.
+# Use a function instead
+
+pred_analysis <- function(data, outcome, k_train, k_tune, method, seed=12){
+  rmse <- list()
+  set.seed(seed)
+  tt_indices <- createFolds(y=data[[outcome]], k=k_train)
+  for(i in 1:length(tt_indices)){
+    data_train <- data[-tt_indices[[i]],]
+    data_test <- data[tt_indices[[i]],]
+    
+    # Train and tune KNN
+    algo_fit <- train(as.formula(paste0(outcome, "~.")), data = data_train, preProcess = c("center", "scale"),
+                      tuneLength = 10, trControl = trainControl(method="cv", number=k_tune), method=method)
+    
+    # Test on fold
+    test_predict <- predict(algo_fit, newdata = data_test)
+    rmse[[i]] <- postResample(pred = test_predict, obs = data_test[[outcome]])
+  }
+  
+  all_results <- do.call("rbind", rmse)
+  cv_estimate <- apply(all_results, 2, mean)
+  cv_se <- apply(all_results, 2, sd)
+  final_results <- c("cv_rmse"=cv_estimate, "cv_se"=cv_se)
+  # final_results <- list(c("cv_rmse"=cv_estimate, "cv_se"=cv_se), bestTune = algo_fit$bestTune)
+  return(final_results)
+}
+
+# Run analysis
+pred_analysis(data=cancer_data_reg, outcome="TARGET_deathRate", k_train = 5, k_tune = 5, method="knn")
+
+# How about CART
+pred_analysis(data=cancer_data_reg, outcome="TARGET_deathRate", k_train = 5, k_tune = 5, method="rpart")
+
+# LASSO?
+pred_analysis(data=cancer_data_reg, outcome="TARGET_deathRate", k_train = 5, k_tune = 5, method="glmnet")
+# Be careful about tuning parameters!
+```
+
+# Apply functions
+- Notice use of `apply` above
+- Class of *apply* functions can be used to easy run desired function on many inputs
+- Main examples: `apply` and `lapply`
+
+```{r}
+# Apply will run desired function on all elements of an array (rows or columns)
+# By columns
+apply(cancer_data_reg, MARGIN=2, FUN=mean)
+apply(cancer_data_reg, MARGIN=2, FUN=sd)
+
+# By rows
+# apply(cancer_data_reg, MARGIN=1, FUN=mean)
+
+# Can also specify function arguments in ... (for example na.rm=TRUE)
+cancer_data_reg <- read_csv("../data/cancer_reg.csv") %>%
+  select(-avgAnnCount, -avgDeathsPerYear, -incidenceRate, -Geography, -binnedInc)
+
+apply(cancer_data_reg, MARGIN=2, FUN=mean)
+apply(cancer_data_reg, MARGIN=2, FUN=mean, na.rm=TRUE)
+
+# lapply is very similar, but will apply function to each element of a list
+# Output returned in list form
+lapply(cancer_data_reg, FUN=mean, na.rm=TRUE)
+# Recall data.frames are lists, which each column being a different list element
+# Hence, can use either apply or lapply
+
+```
