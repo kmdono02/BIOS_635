@@ -17,6 +17,7 @@ library(caret)
 library(rpart)
 library(randomForest)
 library(e1071)
+library(DMwR)
 ```
 
 ```{r}
@@ -31,6 +32,18 @@ heart_disease_data <- read_csv("../data/heart_disease/Correct_Dataset.csv",
                    ref = "No")) %>%
   select(-X1, -Target) %>%
   drop_na()
+
+set.seed(12)
+fetal_health_data <- read.csv("../data/fetal_health_subset.csv") %>% 
+  select(baseline.value, accelerations, fetal_movement,
+         uterine_contractions, light_decelerations, severe_decelerations,
+         prolongued_decelerations, abnormal_short_term_variability,
+         mean_value_of_short_term_variability, mean_value_of_long_term_variability,
+         fetal_health) %>%
+ drop_na() %>%
+ mutate(fetal_health_cat = 
+          factor(fetal_health)) %>%
+  select(-fetal_health)
 ```
 
 # Indexing objects
@@ -160,7 +173,7 @@ pred_analysis <- function(data, outcome, k_train, k_tune, method, seed=12){
   cv_estimate <- apply(all_results, 2, mean)
   cv_se <- apply(all_results, 2, sd)
   final_results <- c("cv_rmse"=cv_estimate, "cv_se"=cv_se)
-  # final_results <- list(c("cv_rmse"=cv_estimate, "cv_se"=cv_se), bestTune = algo_fit$bestTune)
+  final_results <- list(c("cv_rmse"=cv_estimate, "cv_se"=cv_se), bestTune = algo_fit$bestTune)
   return(final_results)
 }
 

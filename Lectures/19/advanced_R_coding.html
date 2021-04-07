@@ -1655,7 +1655,19 @@ heart_disease_data &lt;- read_csv(&quot;../data/heart_disease/Correct_Dataset.cs
            relevel(factor(ifelse(Target&gt;0, &quot;Yes&quot;, &quot;No&quot;)), 
                    ref = &quot;No&quot;)) %&gt;%
   select(-X1, -Target) %&gt;%
-  drop_na()</code></pre>
+  drop_na()
+
+set.seed(12)
+fetal_health_data &lt;- read.csv(&quot;../data/fetal_health_subset.csv&quot;) %&gt;% 
+  select(baseline.value, accelerations, fetal_movement,
+         uterine_contractions, light_decelerations, severe_decelerations,
+         prolongued_decelerations, abnormal_short_term_variability,
+         mean_value_of_short_term_variability, mean_value_of_long_term_variability,
+         fetal_health) %&gt;%
+ drop_na() %&gt;%
+ mutate(fetal_health_cat = 
+          factor(fetal_health)) %&gt;%
+  select(-fetal_health)</code></pre>
 <div id="indexing-objects" class="section level1">
 <h1>Indexing objects</h1>
 <ul>
@@ -1886,9 +1898,9 @@ cv_se &lt;- apply(all_results, 2, sd)
 final_results &lt;- c(&quot;cv_rmse&quot;=cv_estimate, &quot;cv_se&quot;=cv_se)
 final_results</code></pre>
 <pre><code>##     cv_rmse.RMSE cv_rmse.Rsquared      cv_rmse.MAE       cv_se.RMSE 
-##      22.75817261       0.32860514      16.75670731       0.79428412 
+##      22.99698348       0.30350719      17.04302127       1.96003242 
 ##   cv_se.Rsquared        cv_se.MAE 
-##       0.05295695       0.78825873</code></pre>
+##       0.05528201       1.16496033</code></pre>
 <pre class="r"><code># What if we want to change the method?  Need to rewrite all of this code and just one thing.
 # Use a function instead
 
