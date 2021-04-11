@@ -1,0 +1,327 @@
+---
+title: "Homework 6"
+subtitle: "BIOS 635"
+author: "..."
+date: "3/27/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(randomForest)
+library(gtsummary)
+library(flextable)
+```
+
+# Introduction
+
+In this assignment, you will practice using decision tree-based methods (CART and random forest) to create prediction algorithms.  We will use the following datasets seen in lecture.
+
+1. cancer_reg.csv (outcome = `TARGET_deathRate`)
+  - Data on cancer fatality rates by county in the US (continuous outcome)
+
+2. Correct_Dataset.csv (outcome = `Target`)
+  - Data on heart disease occurrence for sample of people (categorical outcome)
+  
+You can find metadata on these datasets from file `cancer_data_desc.docx` and https://archive.ics.uci.edu/ml/datasets/heart+disease.  For simplicity, please remove all missing observations from the datasets when they are read in.
+
+# 1
+# A 
+First read in the cancer fatality rate dataset.  Remove the following values from the data: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, and `Geography`.  Then create summary statistics values for all variables in the dataset, group by if the county's fatality rate is above or below the median in the data.
+
+- Per usual, include:
+  - Sample size
+  - Means and SDs for all continuous variables and counts/percentages for all categorical variables
+  - Include p-values from an ANOVA/T-test for differences in the variables by above/below the median fatality rate
+  - Bold all header labels
+
+```{r}
+cancer_data <- read_csv("data/cancer_reg.csv") %>%
+  select(-c("avgAnnCount", "avgDeathsPerYear", "incidenceRate", "Geography")) %>%
+  drop_na()
+```
+
+# B 
+Now, try to predict `TARGET_deathRate` using a single decision tree (CART).  First, consider growing a tree based on the default settings with **all other variables in the dataset as the predictors**.  That is, you **won't do any pruning**.  Train and test the CART algorithm using 5 fold CV, reporting the CV MSE and CV MSE standard error (SE). 
+
+```{r}
+# Create folds
+fold_k <- 5
+tt_indices <- createFolds(y = cancer_data$TARGET_deathRate, k=fold_k)
+test_results <- list()
+
+for(i in 1:fold_k){
+  # Create train, test sets
+  cancer_train <- cancer_data[-tt_indices[[i]],]
+  cancer_test <- cancer_data[tt_indices[[i]],]
+  
+  # Fit CART w/out pruning/tuning
+  cart_fit <- rpart(TARGET_deathRate~., data=cancer_train)
+  
+  # Test on test data
+  test_predict <- predict(cart_fit, newdata=cancer_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, cancer_test$TARGET_deathRate)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_cart <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_cart, 2, mean)
+cv_error_se <- apply(test_results_all_cart, 2, sd)
+
+print("CV error = ")
+cv_error
+
+print("CV error SE = ")
+cv_error_se
+```
+
+# C 
+Now you will again use CART to create the algorithm, however this time you will prune the tree using a chosen *complexity parameter* ($\alpha$ from lecture).  You will tune this parameter in two ways:
+
+1. Using 5 fold CV **on the entire dataset**
+2. Using 5 fold CV **on the training dataset in your train and test procedure**.
+
+For both methods, you will train and test the CART algorithm using 5 fold CV.  For tuning method 1, you will fix the tuning parameter throughout this train and test CV process based on the entire dataset results.  For method 2, **you will select a different tuning parameter specific to the training dataset in a given CV iteration**.  From both tuning methods, report the corresponding CV MSE and CV MSE SE after the 5 fold CV.  How are these metrics different between the two methods?  Which tuning method is unbiased and why?
+
+```{r}
+# Use folds from 1B (or can re-create the folds, either is fine)
+# Setup function to do tuning methods
+
+train_test_cart <- function(data=cancer_data, folds=tt_indices, method){
+  
+    set.seed(12)
+    # Tune
+    tune_cart <- train(TARGET_deathRate~., data=data, method="rpart", tuneLength=10)
+    best_params <- tune_cart$bestTune
+    
+    # Train and test
+    test_results <- list()
+    
+    for(i in 1:length(folds)){
+      data_train <- data[-tt_indices[[i]],]
+      data_test <- data[tt_indices[[i]],]
+  
+      # Fit CART with tuning params
+      if(method=="whole_data"){
+        cart_fit <- train(TARGET_deathRate~., data=data_train, method="rpart",
+                        tuneGrid = best_params)
+      }else{
+        set.seed(12)
+        cart_fit <- train(TARGET_deathRate~., data=data_train, method="rpart",
+                        tuneLength = 10)
+      }
+      
+      # Test on test set
+      test_predict <- predict(cart_fit, newdata=data_test)
+  
+      # Save fold-specific results
+      test_results[[i]] <- postResample(test_predict, data_test[["TARGET_deathRate"]])
+    }
+    
+    test_results_all <- data.frame(do.call("rbind", test_results)) %>%
+      mutate(MSE = RMSE^2)
+
+    cv_error <- apply(test_results_all, 2, mean)
+    cv_error_se <- apply(test_results_all, 2, sd)
+    
+    results_end <- list("cv_error"=cv_error, "cv_error_se"=cv_error_se)
+    return(results_end)
+}
+
+print("CART: tune using whole dataset")
+train_test_cart(method="whole_data")
+
+print("CART: tune using training set only")
+train_test_cart(method="train_specific")
+```
+
+Comparing the results between the two tuning methods, we see that using the entire datatset to tune the $Cp$ parameter results in lower MSE then using training set-specific tuning.  However, this difference in very small in this case (see the RMSEs, MAE) and may not be "significantly different" relative to random sampling variation.  These differences may be more pronounced if more folds were used in the CV procedure.  Tuning using the entire dataset is biased, as it uses information from both the training and testing sets to create the algorithm.  This bias can be more or less pronounced depending on the prediction method being used (CART vs SVM vs Random Forest, etc.).
+
+# D
+Finally, you will consider bagging and random forest.  
+
+## i
+First, describe the differences between how CART, bagged decision trees, and random forest train algorithms.  How are bagging and random forest related and how does random forest ''decorrelate'' the trees compared to bagging?  How are bagging and random forest examples of an *ensemble learning algorithm*?  What theoretical benefits do ensemble algorithms often provide?
+
+Bagging and Random Forest create multiple decision trees based on generating a set (say of size $B$) of bootstrap samples from the original dataset.  A tree is constructed using each bootstrap sample, resulting in $B$ trees.  The predicted results from each tree are aggregated to construct a final prediction (e.g. mean or majority vote).  With CART, only a single tree is created from a given training set, with the predicted outcome coming soley from this tree.  This aggregation of multiple trees with bagging and RF is an example of *ensemble learning*, i.e. the combination of predictions from multiple individual algorithms to create a more stable/less variable results without inducing bias.  This improves the expected prediction accuracy on a random sample due to the bias-variance tradeoff.  Bagging and RF differ in that RF adds in an extra step to decorrelate the trees, thus reducing the variance of the aggregate prediction.  This is done by randomly selecting $m$ of the $p$ predictions to be considered when splitting the tree.  This selection is done at each node when constructing all of the trees in the set, with $m$ chosen via tuning.
+
+## ii
+Now, train and test a random forest algorithm.  First, detail the tuning parameters for a random forest algorithm.  For these tuning parameters, consider the following values for your grid search to select the parameter values: trees = $\{50, 250, 500\}$ and $m = \{p/2, \sqrt{p}, p\}$.  Use the **out of bag MSE in the training set** to choose the ''best'' tuning parameters for a given training set.  Use 5 fold CV to train and test the algorithm.  Correctly implement the described tuning process into your CV procedure.  **Which value for $m$ denotes a bagged trees algorithm?**
+
+```{r}
+# Create grid
+total_p <- dim(cancer_data)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+
+test_results <- list()
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  cancer_train <- cancer_data[-tt_indices[[i]],]
+  cancer_test <- cancer_data[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(TARGET_deathRate~., data=cancer_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$mse[tuning_grid$trees[j]]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "mse"=tune_results)
+  best_tune <- train_tune_results[which(tune_results==min(tune_results)),]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(TARGET_deathRate~., data=cancer_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  test_predict <- predict(rf_fit, newdata=cancer_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, cancer_test$TARGET_deathRate)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+print("CV error = ")
+cv_error
+
+print("CV error SE = ")
+cv_error_se
+```
+
+When setting the number of predictors considered at each split to $p$ (total number of predictors in dataset) you get bagged trees.  That is, you always consider all predictors when making a split in the trees, no random selection of a subset is done.
+
+### iii
+Print the CV MSE and CV MSE SE from your random forest procedure, along with these same metrics from your unpruned CART algorithm and pruned CART algorithm in a `flextable`.  Compare and contrast these values.
+
+```{r}
+# Create data frame of all results
+mses <- c(apply(test_results_all_cart, 2, mean)["MSE"],
+          train_test_cart(method="train_specific")$cv_error["MSE"],
+          apply(test_results_all_rf, 2, mean)["MSE"])
+
+ses <- c(apply(test_results_all_cart, 2, sd)["MSE"],
+          train_test_cart(method="train_specific")$cv_error_se["MSE"],
+          apply(test_results_all_rf, 2, sd)["MSE"])
+
+method <- c("CART", "Pruned_CART", "RF")
+
+all_results <- data.frame("CV_MSE" = mses,
+                                "CV_SE" = ses,
+                                "Method" = method)
+flextable(all_results) 
+```
+
+We see that the CV MSEs are similar between the unpruned CART and the Pruned CART, though substantially lower in the RF model.  This makes sense given the general improved in variance of RF compared to the others, resulting in an improvement in the average error across the folds (as the folds are independent datasets with respect to the training sets used).  The SEs do not share this pattern, with the unpruned CART models having the lowest CV MSE, followed by RF and then the pruned CART.  This could due to a few factors, specifically 1) the low amount of folds used (implying the SE measure is likely not very precise) and 2) the lack of tuning used in the unpruned CART while the other measures have tuning parameters which change between the training sets, possibly inducing variability from fold to fold.  Before coming to conclusions on this comparison, a more precise measure of SE is needed.
+
+# 2
+# A
+Read in the heart disease dataset.  **Note that missing values in the data are denoted by an empty cell, string "NA" and string "?".  Use the `na` argument to make sure R correctly denotes these values as NA.**  Also, re-group the outcome `Target` so that those equal to group 3 or 4 are equal to 3.
+
+```{r}
+heart_disease <- read_csv("data/Correct_Dataset.csv") %>%
+  mutate(Target = factor(ifelse(Target>3, 3, Target))) %>%
+  select(-X1)
+```
+
+# B
+Now, train and test a random forest algorithm. Tune the algorithm using a grid search.  For these tuning parameters, consider the following values for your grid search to select the parameter values: trees = $\{50, 250, 500\}$ and $m = \{p/2, \sqrt{p}, p\}$.  Use the **out of bag overall accuracy in the training set** to choose the ''best'' tuning parameters for a given training set.  Use 5 fold CV to train and test the algorithm.  Correctly implement the described tuning process into your CV procedure.  Print the CV per-class accuracy (or error) and CV SE for these metrics, from your random forest procedure, in a `flextable`.  **Why would reporting the out of bag error/accuracy instead of implementing a holdout/CV train test procedure result in biased metrics?**.
+
+```{r}
+# Create grid
+total_p <- dim(cancer_data)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+
+test_results <- list()
+fold_k <- 5
+tt_indices <- createFolds(y = heart_disease$Target, k=fold_k)
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  heart_train <- heart_disease[-tt_indices[[i]],]
+  heart_test <- heart_disease[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(Target~., data=heart_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$err.rate[tuning_grid$trees[j], 1]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "oob_error"=tune_results)
+  best_tune <- train_tune_results[which(tune_results==min(tune_results)),][1,]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(Target~., data=heart_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  heart_test$test_predict <- predict(rf_fit, newdata=heart_test)
+  
+  # Save fold-specific, class-specific error rates
+  per_class_accuracy <- rep(NA, length(levels(heart_test$Target)))
+  
+  for(l in 1:length(per_class_accuracy)){
+    per_class_accuracy[l] <- 
+      heart_test %>%
+      filter(Target==levels(Target)[l]) %>%
+      summarise(accuracy = sum(test_predict==levels(Target)[l])/n()) %>%
+      unlist()
+            
+    names(per_class_accuracy)[l] <- 
+      paste0("accuracy_", levels(heart_test$Target)[l])
+  }
+  
+  test_results[[i]] <- per_class_accuracy
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results))
+
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+# Create data frame for flex table
+all_results <- data.frame("Class"=levels(heart_disease$Target),
+           "CV_Accuracy"=cv_error,
+           "CV_SE"=cv_error_se)
+rownames(all_results) <- NULL
+
+flextable(all_results)
+```
+
+The written response question was poorly worded (no points deducted for any response given).  OOB is **not biased** as it maintains independent training and test sets when constructing each tree.  However, it can be shown (mentioned in textbook as well) then as the number of trees $B$ increases continually, the OOB error converges to leave-one-out CV (LOOCV).  While LOOCV has low bias, it has high variance relative to other forms of CV (5 and 10 fold for example).  Thus, OOB also can have high variance relative to other forms of performance evaluation (5 and 10 fold CV for example).
