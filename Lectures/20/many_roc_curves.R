@@ -11,6 +11,7 @@ ibis_data <- read_csv("../data/fyi_data.CSV") %>%
 ibis_data <- data.frame(lapply(ibis_data, as.factor))
 
 test_roc <- list()
+aucs <- list()
 k=5
 tt_indices <- createFolds(y=ibis_data$asd_group, k=k)
 
@@ -31,9 +32,39 @@ for(i in 1:k){
   test_roc[[i]] <- data.frame("asd_group"=test_data$asd_group, 
                               "prob"=test_predict$HR_ASD,
                               "fold"=i)
+  aucs[[i]] <- pROC::auc(pROC::roc(response=test_data$asd_group,
+                                   predictor = test_predict$HR_ASD))
 }
 
 all_test_data <- do.call("rbind", test_roc)
+auc_estimate <- mean(unlist(aucs))
+
+boots <- 50
+auc_boot <- list()
+for(b in 1:boots){
+  boot_sample <- ibis_data[sample(),]
+  for(i in 1:k){
+    train_data <- boot_sample[tt_indices[[i]],]
+    test_data <- boot_sample[-tt_indices[[i]],]
+    
+    # SMOTE training set AFTER creating train and test sets
+    train_smote <- SMOTE(asd_group~., data=train_data, perc.under = 150)
+    
+    # Use random forest for example
+    rf_fit <- train(asd_group~., data = train_smote, 
+                    method = "rf",
+                    trControl=trainControl(method="cv", number=2))
+    
+    test_predict <- predict(rf_fit, newdata = test_data, type="prob")
+    
+    test_roc[[i]] <- data.frame("asd_group"=test_data$asd_group, 
+                                "prob"=test_predict$HR_ASD,
+                                "fold"=i)
+    aucs[[i]] <- pROC::auc(pROC::roc(response=test_data$asd_group,
+                                     predictor = test_predict$HR_ASD))
+  }
+  auc_boot[[b]] <- mean(unlist(aucs))
+}
 
 # Compute mean roc curve
 mean_roc <- function(data, cutoffs = seq(from = 0, to = 1, by = 0.01)) {

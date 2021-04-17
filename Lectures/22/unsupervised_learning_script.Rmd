@@ -154,7 +154,8 @@ ggplot(data=clus_total_all_criterion, mapping=aes(x=no_of_clus,
 # Add in clusters
 brain_data_x_clus <- data.frame(brain_data_x, 
                                 "clus"=factor(clus[[clus_min_bic]]$cluster),
-                                pc_scores)
+                                pc_scores,
+                                asd_diag = brain_data$RiskGroup)
 
 ggplot(data=brain_data_x_clus, mapping=aes(x=Comp.1, y=Comp.2,
                                            color=clus))+
@@ -162,4 +163,11 @@ ggplot(data=brain_data_x_clus, mapping=aes(x=Comp.1, y=Comp.2,
   theme_bw()
 
 # Validate to external variables
+ggplot(data=brain_data_x_clus, mapping=aes(x=Comp.1, y=Comp.2,
+                                           color=clus,
+                                           shape=asd_diag))+
+  geom_point(size=2)+
+  theme_bw()
+
+ftable(brain_data_x_clus$clus, brain_data_x_clus$asd_diag)
 ```

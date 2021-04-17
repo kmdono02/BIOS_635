@@ -1,0 +1,58 @@
+---
+title: "Homework 8"
+subtitle: "BIOS 635"
+author: "..."
+date: "4/17/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(factoextra)
+```
+
+# Introduction
+
+In this assignment, you will practice using unsupervised learning and clustering to analyze gene expression data from patients with cancer.  Metadata for the dataset can be found at https://www.kaggle.com/crawford/gene-expression.
+
+There are three datasets.  One include the diagnoses for the patients (actual.csv) with one cancer type denoted `AML` and the other denoted `ALL`.  Additionally, there are two sets of gene expression data.  These are ~50:50 splits for the 72 patients, one denoted initial and the other denoted independent.  We will use the initial to train and then the independent to train.
+
+# 1
+# A 
+First, read in the 3 datasets.  From these, create 4 datasets which you will use for the analyses; `train_x`, `train_y`, `test_x`, and `test_y`.  The IDs in the actual.csv dataset are in order from initial (1st 38 observations) to independent (last 34 observations).  From actual.csv, create `train_y` consisting of the 1st 38 observations and `test_y` consisting of the last 34.
+
+Next we will create the predictor datasets `train_x` and `test_x`.  First, read in the two gene expression datasets (in CSV format).  Then, remove all variables with the string "Call" from both datasets (these won't be needed) as well as the column "Gene Description".  Finally, note these datasets are in an odd form: each gene is denoted by the column "Gene Accession Number", and the expression for that gene for a given ID is denoted as a number column (39, 40, ...).  We need to transpose this so that each row is a different ID.  That is convert the data to long form, where each current row (gene) is a new column and each current column (ID) is in the 1st column labelled "ID".  Do this for both datasets, resulting in `train_x` and `ttest_x`
+
+# B
+Now, we will try using Principal Components Analysis (PCA) to reduce the dimension of the predictor space which is currently very large (due to the large number of genes).  Using `train_x`, run PCA on the gene expression data.  You will do this in the following steps
+
+1) Run PCA and create a scree plot showing the % of variation in the data contained by each component
+2) How many components would you choose to summarize the data?  Provide justification for whatever you choose.  Regardless of your choice, create a dataset consisting of each person's PC scores.  Plot these two PC scores on a two-dimensional plot.
+3) Create a second plot of these two PC scores, but include their diagnosis from the `train_y` dataset as colors for the points.  Include the mean PC1 and PC2 values with a 95% confidence ellipse for each group.  Finally, include a summary statistics table using `tbl_summary` comparing the mean and SD for each PC by diagnosis.  Include a p-value from the hypothesis test that these means are different
+
+# C
+Now, we try to use these PCs to group the patients in the training dataset.  First, we will consider unsupervised subgrouping using K-means.  You will do this in the following steps
+
+1) Using the PC scores from the `train_x` data analysis, run K-means clustering.  Fit cluster numbers from 1 to 8.  **Make sure to standardize the PCs before running K-means!**
+2) Compute AIC and BIC for each number of clusters tried in part 1 above.  Plot BIC on the Y axis and number of clusters on the X-axis.  Include a dotted red horizontal and vertical line where BIC is minimized.  Do you need to try larger numbers of clusters or does it look like a maximum of 8 clusters was sufficient?
+3) Finally, re-do the plot in 1B bullet 3, but group by cluster instead
+
+# D
+Finally, we will try to use the PCs to predict cancer diagnosis.  For simplicity, we ill use KNN classification.  You will do this in the following steps
+
+1) Using the PC scores from the analysis `train_x` and the outcomes in `train_y`, tune and train a KNN model on this training data (remember to scale and center your predictors)
+2) Using the loadings from your PCA, compute PC scores for the data in `test_x` (test set).  Then, apply your KNN algorithm on the test set and predict the cancer diagnosis from these PC scores.  Report the usual confusion matrix as well the ROC curve and area under the curve (AUC).  **Why might using the PCs to create a prediction algorithm be a better method then using the actual gene expression variables (Hint: think overfitting and the bias-variance tradeoff)?**
+3) Lastly, let's see how well your K-means clusters in the `train_x` analyses related to the diagnosis in `train_y` as a form of "external validation".  Create a frequency table showing the number of percentage of patients in each diagnosis group in each of your clusters.  Do you see any sort of relationship visually based on this table between your clusters and patient diagnosis?
+
+
+
+
+
+
