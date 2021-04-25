@@ -306,6 +306,7 @@ for(i in 1:length(methods)){
 }
 
 analysis_all_df <- do.call("rbind", analysis_all)
+rownames_to_column(analysis_all_df, var="metric") %>% flextable()
 
 ## Fifth part
 # First lm model on whole dataset
@@ -326,11 +327,13 @@ lasso_model <- train(as.formula(paste0("`Life expectancy`~", paste0("`", preds, 
 coef(lasso_model$finalModel, lasso_model$bestTune$lambda)
 ```
 
-- Based on the correlation heat map, we see noticeably high correlations, including between GDP and expenditure (make sense as GDP is total product produced by country), and diptheria and Hepatits B occurrence (both infectious diseases).  Including these in a regression model together may lead to poorly fitted models due to collinearity.
+- Based on the correlation heat map, we see noticeably high correlations, including between GDP and expenditure (make sense as GDP is total product produced by country), and diptheria and Hepatits B occurrence (both infectious diseases).  Including these in a regression model together may lead to poorly fitted models due to collinearity, resulting in a loss of precision in our parameter estimates and an inability to accurate identify associations between these affected predictors and the outcome.
 
 - Based on the scatterplots, most of the predictors seem to have linear relationships with the outcome life expectancy.  Some possible exceptions include GDP (seems like it increases sharply then levels off as GDP increases) and Polio/diptheria (seems to sharply increase for high values).  We could incorporate this in a regression model by using nonlinear transformations of these predictors in the model (polynomial, spline, exponential, etc.).
 
 - When looking at the linear regression vs LASSO models on the full data, we see that the LASSO shrunk Hepitatis B and infant deaths to 0 at the "best" lambda parameter.  This is likely due to the high correlations between the thinness variables (infant deaths) and diptheria (Hep B), meaning they are not adding in independent information to the model.
+
+- Some positives about nonparametric methods are 1) they make assumptions (or minimal ones) about the data generating mechanism (mean, distribution, etc.) which reduces the chance of bias from model mispecification.  However, compared to parametric methods, they 1) can overfit to the training data more often, 2) may be more difficult to interpret and 3) may be more computationally expensive (time, power, etc.).
 
 
 # 2
@@ -360,7 +363,8 @@ tbl_summary(data=oasis_data %>% select(-c("Subject ID", "MRI ID", "Group")),
 # Scatterplots
 ggpairs(data=oasis_data %>% select(-c("Subject ID", "MRI ID", "Group")),
         ggplot2::aes(colour=CDR))+
-    theme(text = element_text(size=20))
+    theme(text = element_text(size=20),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 ```
 
 # B
@@ -505,8 +509,9 @@ lasso_cv_results_all <- do.call("rbind", cv_results)
 print("Lasso CV error:")
 apply(lasso_cv_results_all, 2, mean)
 ```
-- The results for logistic regression and QDA are very similar in terms sensitivity and specificity, with KNN being noticeably worse and QDA having noticably less SE in both measures
-- The tuning process used above is incorrect (biased) as we used all of the data to tune and then ran training and testing through CV, we can result in overfitting and result in biased testing results.  We can correct this by tuning each time we do training in the CV process.
+- QDA was chosen as LDA assumes that each class has the same predictor covariance matrix.  We can see that this is not the case by looking at the correlations reported in the above plot by class (ex. EDUC and eTIV, DUC and ASF).
+- The results for logistic regression and QDA are very similar in terms sensitivity and specificity, with KNN being noticeably worse and QDA having noticeably less SE in both measures
+- The tuning process used above is incorrect (biased) as we used all of the data to tune and then ran training and testing through CV, we can result in overfitting and result in biased testing results.  We can correct this by tuning each time we do training in the CV process.  By default, if using `cv.glmnet`, a grid search is done where each parameter set in the grid is used to train a penalized regression model, with the training and testing done using 10-fold CV.  If `train` is used, the bootstrap with 25 resamples is used to do this same process.
 - Using a model selection approach can reduce the number of features used in the prediction model, thus reducing the complexity of the model and the propensity to overfit (lower the variance in the bias-variance tradeoff framework).
 
 # C
@@ -516,7 +521,7 @@ Recall we removed all visits except the first one in 2A.  Consider using all of 
 1. Use logistic regression or LDA/QDA on data which includes multiple visits for some subjects.  We will train and test on a 60:40 split of such a dataset.
 2. Do the same, but train and test using 10-fold CV on the whole dataset.
 
-- In order to do a 60:40 split and maintain unbiased training and testing sets, we much make sure we have completely independent sets.  Thus, due to the multiple observations per person we have clustered data (each person is a cluster).  Thus, we can randomly select 60% of the people including all of their visits, as the training set, with the remaining as the test set.
+- In order to do a 60:40 split and maintain unbiased training and testing sets, we much make sure we have completely independent sets.  Thus, due to the multiple observations per person we have clustered data (each person is a cluster).  Thus, we can randomly select 60% of the people including all of their visits, as the training set, with the remaining as the test set.  Note that there is still the lack of independence in a given subject, which violates the assumptions of independent training set data for logsitic regression and LDA/QDA (need a longitudinal model; beyond the scope of this course).
 - We again need to account for the clustering, this time in the CV process.  We can simply partition the set of IDs into 10 equal pieces, and have 9 out of 10 of these be the training set and the other 1 set be the testing set.  We repeat this for each of the 10 partitions.
 
 # 3
@@ -556,7 +561,8 @@ tbl_summary(data=bank_data,
 Now, create a panel of scatterplots for these variables, colored by `y` using GGally.  Interpret any noticeably non-zero correlations, and denote there are any signs of collinearity between these variables.  Does it make sense to use correlations of the categorical variables?  If so why?  If not, why not?
 
 ```{r 3b, fig.width = 22, fig.height = 18}
-ggpairs(bank_data, mapping=aes(color=y))
+ggpairs(bank_data, mapping=aes(color=y))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 ```
 
 For the continuous variables, we see high correlations between the economic wellness variables, specifically employment variance rate and the consumer price index, as well as the number employed.  This makes sense, given how related different indices of the economy are (production, growth, employment, etc.).  Correlations between categorical variables don't make much sense, as they imply a linear relationship between the variables.  This would mean a linear relationship between the two sets of categories, which would be informative if the categories represent ordinal variables (increasing and decreasing with inherent order).
@@ -645,4 +651,5 @@ do.call("rbind", analysis_all)
 attr(ns(bank_data$age, df=4), "knots")
 ```
 
+- The knots are placed at the 0.25, 0.5, and 0.75 quantiles.
 - We have essentially the same prediction accuracy estimates for both the linear and spline models, but much higher SEs for the spline model (as expected due to the more complex model).  Thus, a linear prediction models seems to suffice (though we may want to check the per-class accuracy rates to more robustly compare the models).
