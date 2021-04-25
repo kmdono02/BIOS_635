@@ -24,6 +24,15 @@ In this assignment, you will practice using unsupervised learning and clustering
 
 There are three datasets.  One include the diagnoses for the patients (actual.csv) with one cancer type denoted `AML` and the other denoted `ALL`.  Additionally, there are two sets of gene expression data.  These are ~50:50 splits for the 72 patients, one denoted initial and the other denoted independent.  We will use the initial to train and then the independent to train.
 
+```{r}
+train_x_long <- read_csv("data/data_set_ALL_AML_train.csv")
+
+train_x_wide <- train_x_long %>% select(-"Gene Description", -starts_with("call")) %>%
+  pivot_longer(cols = 2:39, names_to = "id", values_to = "gene_expression") %>%
+  pivot_wider(id_cols = "id", names_from = "Gene Accession Number", 
+              values_from = "gene_expression")
+```
+
 # 1
 # A 
 First, read in the 3 datasets.  From these, create 4 datasets which you will use for the analyses; `train_x`, `train_y`, `test_x`, and `test_y`.  The IDs in the actual.csv dataset are in order from initial (1st 38 observations) to independent (last 34 observations).  From actual.csv, create `train_y` consisting of the 1st 38 observations and `test_y` consisting of the last 34.

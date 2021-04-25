@@ -7,7 +7,7 @@ output: html_document
 ---
 
 ```{r setup, include=TRUE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, include=TRUE,
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, include=TRUE,
                       fig.width = 10, fig.height = 5)
 ```
 
@@ -23,6 +23,7 @@ library(ggpubr)
 library(gam)
 library(splines)
 library(corrplot)
+library(glmnet)
 ```
 
 # UNC Honor Code
@@ -58,7 +59,32 @@ First, load up the data saved as the CSV file `Life_Expectancy_Data.csv`.  First
 Second, plot the life expectancy as a function of year **for all of the years in data (2000-2010)**.  Color the points by `Status`, indicating if a country is ``developing'' or otherwise.  Finally, connect the points in a line for each of the countries.
 
 ```{r 1a}
+# Read in data
+who_data <- read_csv("data/Life_Expectancy_Data.csv") %>%
+    filter(Year>=2000&Year<=2010) %>%
+    drop_na()
 
+# Create summary stats
+tbl_summary(data = who_data %>% 
+                filter(Year%in%c(2000, 2005, 2010)) %>%
+                select(-Country, -Status) %>%
+                select(`Life expectancy`, everything()),
+            by = Year,
+            statistic = list(all_continuous() ~ "{mean} ({sd})", 
+                             all_categorical() ~ "{n} ({p}%)")) %>%
+    add_n() %>%
+    add_p(list(all_continuous() ~ "aov", all_categorical() ~ "chisq.test")) %>%
+    as_flex_table() %>%
+    bg(i=1, bg="grey") %>%
+    bold(part="header")
+
+# Plot over time
+ggplot(data=who_data, mapping=aes(x=Year, y=`Life expectancy`, color=Status,
+                                  group=Country))+
+    geom_point()+
+    geom_line()+
+    labs(title = "Life expectancy by country for each year from 2000-2010")+
+    theme_bw()
 ```
 
 # B
@@ -70,9 +96,99 @@ Now, we will begin to predict life expectancy.  First, let's see how well using 
 - Is there a training and testing set system that we could use to ensure all of the countries are used in either training and testing (but not both) while still using the years 2000 to 2009 to train and then 2010 to test?  Use a 60:40 split structure to describe such a system.  Then implement this in R and report the MSE and $R^2$ in the test set.  Again you will use linear regression, though the predictors will be 1) `year` and 2) `Status` only.
 
 ```{r 1b}
+## First bullet
+# Create training and test sets
+who_train <- who_data %>% 
+    filter(Year>=2000&Year<=2009)
 
+who_test <- who_data %>% 
+    filter(Year==2010) %>%
+    filter(!Country%in%c("Ireland", "Namibia"))
+
+# Create LM model
+lm_fit <- lm(`Life expectancy`~Country, data=who_train)
+
+# Test model
+who_test$lm_predict <- predict(lm_fit, newdata = who_test)
+
+# Report test set metrics
+print("2010 Test Set Metrics: Life Expectancy by Country")
+postResample(who_test$lm_predict, who_test$`Life expectancy`)
+
+## Second bullet 
+# Compute correlations between 2000 and 2005, along with 2000 and 2010
+# Create dataset with columns in 2000, 2005, 2010
+data_2000 <- who_data %>% filter(Year==2000) %>% 
+    plyr::rename(replace = c("Life expectancy"="LE_2000")) %>%
+    select(Country, LE_2000)
+data_2005 <- who_data %>% filter(Year==2005) %>% 
+    plyr::rename(replace = c("Life expectancy"="LE_2005")) %>%
+    select(Country, LE_2005)
+data_2010 <- who_data %>% filter(Year==2010) %>% 
+    plyr::rename(replace = c("Life expectancy"="LE_2010")) %>%
+    select(Country, LE_2010)
+
+data_corrs <- 
+    Reduce(function(x,y) full_join(x,y,by="Country"),
+           list(data_2000,data_2005,data_2010))
+
+# Compute correlations
+corr_list <- list("2000:2010"=cor.test(x=data_corrs$LE_2000, y=data_corrs$LE_2010),
+                  "2005:2010"=cor.test(x=data_corrs$LE_2005, y=data_corrs$LE_2010))
+
+# Make function to do it
+corr_format <- function(x){
+    data.frame("Estimate"=x$estimate,
+           "CI_95"=paste0("(", paste0(round(x$conf.int, 2), collapse=", "), ")"),
+           "p-value"=ifelse(x$p.value<0.005, "<0.005", round(cor.test(x=x$p.value, 3))))
+}
+
+# Use lapply
+corr_results <- lapply(corr_list, corr_format)
+for(i in 1:length(corr_results)){
+    corr_results[[i]]$Year <- names(corr_results)[i]
+}
+
+corr_results <- do.call("rbind", corr_results)
+rownames(corr_results) <- NULL
+
+## Third bullet 
+# First select 60% of countries
+who_data_edit <- who_data %>%
+    filter(!Country%in%c("Ireland", "Namibia"))
+
+set.seed(12)
+training_countries <-
+    unique(who_data_edit$Country)[sample(x=1:length(unique(who_data_edit$Country)), 
+       size=ceiling(0.6*length(unique(who_data_edit$Country))))]
+
+# Then select remaining
+testing_countries <-
+    unique(who_data_edit$Country)[-sample(x=1:length(unique(who_data_edit$Country)), 
+       size=ceiling(0.6*length(unique(who_data_edit$Country))))]
+
+# Now create training set
+who_train <- who_data_edit %>% 
+    filter(Year>=2000&Year<=2009&Country%in%training_countries)
+
+who_test <- who_data_edit %>% 
+    filter(Year==2010&Country%in%testing_countries)
+
+# Now test and train using year as predictor
+# Create LM model
+lm_fit <- lm(`Life expectancy`~Year, data=who_train)
+
+# Test model
+who_test$lm_predict <- predict(lm_fit, newdata = who_test)
+
+# Report test set metrics
+print("2010 Test Set Metrics: Life Expectancy by Year")
+postResample(who_test$lm_predict, who_test$`Life expectancy`)
 ```
 
+- Our training and testing datasets are not independent, as we have countries which are in both the training and testing sets.  We can see that data across years are highly correlated, reinforcing this concern.  
+- To address this, we can simply select 60% of the countries to be used as training data in the 2000-2009 data and then the remaining 40% in the 2010 data as the test data.  This means that we **cannot** use country as a predictor (as there is no overlap in this predictor now from training to testing).  When using year, since all data in the 2010 data set has the same year (2010), all values in the test set receieve the same prediction.  To get a more useful prediction model, we would want to use the other predictors in the data with this training and testing structure.
+ 
 # C
 
 Now we will begin to use all of the variables for predicting life expectancy.  **We will select the data in the year 2010 only for this entire part**.  We will consider the following methods
@@ -95,9 +211,127 @@ We will do this in the following steps:
 5. Look at the predictors that were removed from the Lasso regression.  What are the coefficient estimates and p-values for these predictors from the linear regression model?  Does it make sense that these predictors were removed based on this information?  **NOTE: You can do this by re-fitting the Lasso and linear regression models to the entire dataset again and looking at the corresponding output (or incorporate the CV results, either is fine)**
 6. What are some of the positives and negatives of using a more nonparametric method like KNN compared to linear regression?
 
-```{r 1c, fig.width = 14, fig.height = 10}
+```{r 1c, fig.width = 22, fig.height = 18}
+## First part
+# Filter data
+who_data_edit <- who_data %>%
+    filter(Year==2010)
 
+# Correlation plot
+cors_to_plot <- cor(x=who_data_edit %>% 
+                        select(-c("Life expectancy", "Country", "Year", "Status")))
+corrplot(cors_to_plot, method="number")
+
+## Third part
+scatter_list <- list()
+cont_predictors <- names(who_data_edit %>% 
+                        select(-c("Life expectancy", "Country", "Year", "Status")))
+
+for(i in 1:length(cont_predictors)){
+    scatter_list[[i]] <- 
+        ggplot(data=who_data_edit, 
+               mapping=aes_string(x=paste0("`", cont_predictors[i], "`"), 
+                                  y="`Life expectancy`"))+
+            geom_point()+
+            geom_smooth(method="lm", se=FALSE)+
+            theme_bw()+
+            theme(text = element_text(size=20),
+                  axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+}
+
+ggarrange(plotlist = scatter_list)
+
+## Fourth part
+train_test_fn <-
+    function(data=who_data_edit, y_var="Life expectancy",
+             x_var=names(who_data_edit %>% 
+                             select(-c("Life expectancy", "Country", "Year"))),
+             method,
+             k_folds=10){
+        
+        # Create model formula
+        model_fmrla <- as.formula(paste0("`", y_var, "` ~", paste0("`", x_var, "`", collapse="+")))
+        
+        # Create partitions
+        tt_indices <- createFolds(y=data[[y_var]], k=k_folds)
+        
+        # CV train and test
+        cv_results <- list()
+        for(i in 1:k_folds){
+            train_data <- data[-tt_indices[[i]],]
+            test_data <- data[tt_indices[[i]],]
+            
+            # Train
+            if(method=="lm"){
+                model_fit <- lm(model_fmrla, data=train_data)
+            }else{
+                if(method=="glmnet"){
+                tune_model <- train(model_fmrla, data=train_data,
+                                    method=method,
+                                    tuneControl=expand.grid(
+                                        alpha = 1,
+                                        lambda = seq(0.0001, 1, length = 25)))
+                model_fit <- tune_model
+                
+                }else{
+                   tune_model <- train(model_fmrla, data=train_data, tuneLength=10,
+                                    method=method) 
+                   model_fit <- tune_model
+                }
+            }
+            
+            # Test
+            test_data$predicted <- predict(model_fit, newdata=test_data)
+            
+            # Report metrics
+            cv_results[[i]] <- postResample(test_data$predicted,
+                                            test_data[[y_var]])
+        }
+    
+        # Zip everything together to return
+        cv_results_all <- do.call("rbind", cv_results)
+        return(cv_results_all)
+    }
+
+# Run analysis using function
+methods <- c("lm", "knn", "glmnet")
+
+analysis_all <- list()
+for(i in 1:length(methods)){
+    analysis_all[[i]] <- data.frame("cv_est"=apply(train_test_fn(method=methods[i]), 
+                                          MARGIN=2, FUN=mean),
+                                    "cv_se"=apply(train_test_fn(method=methods[i]), 
+                                          MARGIN=2, FUN=sd),
+                                    "method"=methods[i])
+}
+
+analysis_all_df <- do.call("rbind", analysis_all)
+
+## Fifth part
+# First lm model on whole dataset
+preds <- names(who_data_edit %>% 
+                             select(-c("Life expectancy", "Country", "Year")))
+lm_check <- lm(as.formula(paste0("`Life expectancy`~", paste0("`", preds, "`", 
+                                                              collapse = "+"))), 
+               data=who_data_edit)
+tidy(lm_check) %>% arrange(abs(estimate))
+
+# Now look at LASSO on whole dataset
+lasso_model <- train(as.formula(paste0("`Life expectancy`~", paste0("`", preds, "`", 
+                                                              collapse = "+"))),
+                    data=who_data_edit,
+                    method="glmnet",
+                    tuneControl=expand.grid(alpha = 1,
+                                        lambda = seq(0.0001, 5, length = 50)))
+coef(lasso_model$finalModel, lasso_model$bestTune$lambda)
 ```
+
+- Based on the correlation heat map, we see noticeably high correlations, including between GDP and expenditure (make sense as GDP is total product produced by country), and diptheria and Hepatits B occurrence (both infectious diseases).  Including these in a regression model together may lead to poorly fitted models due to collinearity.
+
+- Based on the scatterplots, most of the predictors seem to have linear relationships with the outcome life expectancy.  Some possible exceptions include GDP (seems like it increases sharply then levels off as GDP increases) and Polio/diptheria (seems to sharply increase for high values).  We could incorporate this in a regression model by using nonlinear transformations of these predictors in the model (polynomial, spline, exponential, etc.).
+
+- When looking at the linear regression vs LASSO models on the full data, we see that the LASSO shrunk Hepitatis B and infant deaths to 0 at the "best" lambda parameter.  This is likely due to the high correlations between the thinness variables (infant deaths) and diptheria (Hep B), meaning they are not adding in independent information to the model.
+
 
 # 2
 
@@ -107,8 +341,26 @@ Now let's consider predicting Alzheimer's diagnosis based on magnetic resonance 
 
 First, load in the data contained in `oasis_longitudinal.csv`.  Then, only keep observations with `visit=1` and re-group `CDR` so that it equals 1+ if `CDR` $\geq 0.5$.  Finally, create a summary statistic table by `CDR`.  Include all of the items mentioned in 1A.  Include all variables except `Subject ID`, `MRI ID`, and `Group`.  These 3 variables can be removed from the dataset.  Treat `SES` as categorical.  Also, compute a panel of scatterplots using `GGally`, colored by `CDR` group.
 
-```{r 2a}
+```{r 2a, fig.width = 22, fig.height = 18}
+oasis_data <- read_csv("data/oasis_longitudinal.csv") %>%
+    filter(Visit==1) %>%
+    mutate(CDR = factor(ifelse(CDR>=0.5, "1+", "0")),
+           SES = factor(SES)) %>%
+    drop_na()
 
+# Summary stats
+tbl_summary(data=oasis_data %>% select(-c("Subject ID", "MRI ID", "Group")),
+            by="CDR",
+            statistic = list(all_continuous() ~ "{mean} ({sd})", 
+                             all_categorical() ~ "{n} ({p}%)")) %>%
+    add_n() %>%
+    add_p(list(all_continuous() ~ "aov", all_categorical() ~ "chisq.test")) %>%
+    as_flex_table()
+
+# Scatterplots
+ggpairs(data=oasis_data %>% select(-c("Subject ID", "MRI ID", "Group")),
+        ggplot2::aes(colour=CDR))+
+    theme(text = element_text(size=20))
 ```
 
 # B
@@ -130,8 +382,132 @@ We will do this in the following steps:
 6. Of the first three models, which had the lowest **per-class** CV errors?  Are there any noticeable differences between the models' **per-class** SEs?
 
 ```{r 2b}
+train_test_fn_class <-
+    function(data=oasis_data %>% 
+                 mutate(SES=factor(ifelse(as.numeric(SES)>4, 4, as.numeric(SES))),
+                        `M/F`=factor(`M/F`)), 
+             y_var="CDR",
+             x_var=names(oasis_data %>% 
+                             select(-c("Subject ID", "MRI ID", "Group", "CDR", 
+                                       "MR Delay", "Visit", "Hand"))),
+             method,
+             k_folds=10){
+        
+        # Create model formula
+        model_fmrla <- as.formula(paste0("`", y_var, "` ~", paste0("`", x_var, "`", collapse="+")))
+        
+        # Create partitions
+        tt_indices <- createFolds(y=data[[y_var]], k=k_folds)
+        
+        # CV train and test
+        cv_results <- list()
+        for(i in 1:k_folds){
+            train_data <- data[-tt_indices[[i]],]
+            test_data <- data[tt_indices[[i]],]
+            
+            # Train
+            if(method=="logreg"){
+                model_fit <- glm(model_fmrla, data=train_data, family=binomial)
+            }
+            if(method=="knn"){
+                tune_model <- train(model_fmrla, data=train_data,
+                                    method=method,
+                                    tuneLength=10)
+                model_fit <- tune_model
+            }
+            if(method=="qda"){
+                train_data <- train_data %>% 
+                    mutate(SES=as.numeric(SES), `M/F`=as.numeric(`M/F`))
+                test_data <- test_data %>% 
+                    mutate(SES=as.numeric(SES), `M/F`=as.numeric(`M/F`))
+                
+                model_fit <- train(x=train_data[x_var], y=train_data[[y_var]],
+                                    method="qda")
+            }
+            
+            # Test
+            test_data$predicted <- 
+                if(method=="logreg"){
+                    factor(ifelse(predict(model_fit, newdata=test_data, type="response")>0.5,
+                           "1+", "0"))
+                }else{
+                    predict(model_fit, newdata=test_data, type="raw")
+                }
+            
+            # Report metrics
+            cv_results[[i]] <- confusionMatrix(test_data$predicted,
+                                            test_data[[y_var]], positive = "1+")$byClass
+        }
+    
+        # Zip everything together to return
+        cv_results_all <- do.call("rbind", cv_results)
+        return(cv_results_all)
+    }
 
+# Run analysis using function
+methods <- c("logreg", "knn", "qda")
+
+analysis_all <- list()
+for(i in 1:length(methods)){
+    analysis_all[[i]] <- data.frame("cv_est"=apply(train_test_fn_class(method=methods[i]), 
+                                          MARGIN=2, FUN=mean, na.rm=TRUE),
+                                    "cv_se"=apply(train_test_fn_class(method=methods[i]), 
+                                          MARGIN=2, FUN=sd, na.rm=TRUE),
+                                    "method"=methods[i])
+}
+
+do.call("rbind", analysis_all)
+
+# LASSO
+oasis_data_lasso <- read_csv("data/oasis_longitudinal.csv") %>%
+    filter(Visit==1) %>%
+    mutate(SES=factor(ifelse(as.numeric(SES)>4, 4, as.numeric(SES))),
+           `M/F`=factor(`M/F`)) %>%
+    select(-c("Subject ID", "MRI ID", "Group", 
+              "MR Delay", "Visit", "Hand")) %>%
+    drop_na()
+
+#Tune
+tune_lasso <- cv.glmnet(y = oasis_data_lasso$CDR, 
+          x = model.matrix(CDR ~ ., data = oasis_data_lasso)[, -1],
+          alpha = 1)
+
+#Train and test
+# Create partitions
+k_folds <- 10
+set.seed(12)
+tt_indices <- createFolds(y=oasis_data_lasso$CDR, k=k_folds)
+        
+# CV train and test
+cv_results <- list()
+for(i in 1:k_folds){
+    train_data <- oasis_data_lasso[-tt_indices[[i]],]
+    test_data <- oasis_data_lasso[tt_indices[[i]],]
+    
+    # Use lambda above
+    lasso_fit <- 
+        glmnet(x=model.matrix(CDR ~ ., data = train_data)[, -1],
+           y=train_data$CDR,
+           alpha=1,
+           lambda = tune_lasso$lambda.min)
+    
+    # Test
+    cv_results[[i]] <-
+    postResample(obs=test_data$CDR, 
+                 pred=predict(lasso_fit, 
+                              newx=model.matrix(CDR ~ ., data = test_data)[, -1]))
+}
+
+# Bind results
+lasso_cv_results_all <- do.call("rbind", cv_results)
+
+# Print CV error
+print("Lasso CV error:")
+apply(lasso_cv_results_all, 2, mean)
 ```
+- The results for logistic regression and QDA are very similar in terms sensitivity and specificity, with KNN being noticeably worse and QDA having noticably less SE in both measures
+- The tuning process used above is incorrect (biased) as we used all of the data to tune and then ran training and testing through CV, we can result in overfitting and result in biased testing results.  We can correct this by tuning each time we do training in the CV process.
+- Using a model selection approach can reduce the number of features used in the prediction model, thus reducing the complexity of the model and the propensity to overfit (lower the variance in the bias-variance tradeoff framework).
 
 # C
 
@@ -139,6 +515,9 @@ Recall we removed all visits except the first one in 2A.  Consider using all of 
 
 1. Use logistic regression or LDA/QDA on data which includes multiple visits for some subjects.  We will train and test on a 60:40 split of such a dataset.
 2. Do the same, but train and test using 10-fold CV on the whole dataset.
+
+- In order to do a 60:40 split and maintain unbiased training and testing sets, we much make sure we have completely independent sets.  Thus, due to the multiple observations per person we have clustered data (each person is a cluster).  Thus, we can randomly select 60% of the people including all of their visits, as the training set, with the remaining as the test set.
+- We again need to account for the clustering, this time in the CV process.  We can simply partition the set of IDs into 10 equal pieces, and have 9 out of 10 of these be the training set and the other 1 set be the testing set.  We repeat this for each of the 10 partitions.
 
 # 3
 
@@ -156,16 +535,31 @@ First, load up the data saved as the CSV file `bank_data_subset.csv`.  Only read
 - You can leave the variable labels at their defaults
 
 ```{r 3a}
+bank_data <- read_csv("data/bank_data_subset.csv") %>%
+    select(age, job, marital, education, default, housing, loan, `emp.var.rate`, 
+           `cons.price.idx`, `cons.conf.idx`, `nr.employed`, y) %>%
+    mutate(y=factor(y)) %>%
+    drop_na()
 
+tbl_summary(data=bank_data, 
+            by=y,
+            statistic = list(all_continuous() ~ "{mean} ({sd})", 
+                             all_categorical() ~ "{n} ({p}%)")) %>%
+    add_n() %>%
+    add_p(list(all_continuous() ~ "aov", all_categorical() ~ "chisq.test")) %>%
+    as_flex_table() %>%
+    bold(part="header")
 ```
 
 # B
 
 Now, create a panel of scatterplots for these variables, colored by `y` using GGally.  Interpret any noticeably non-zero correlations, and denote there are any signs of collinearity between these variables.  Does it make sense to use correlations of the categorical variables?  If so why?  If not, why not?
 
-```{3b}
-
+```{r 3b, fig.width = 22, fig.height = 18}
+ggpairs(bank_data, mapping=aes(color=y))
 ```
+
+For the continuous variables, we see high correlations between the economic wellness variables, specifically employment variance rate and the consumer price index, as well as the number employed.  This makes sense, given how related different indices of the economy are (production, growth, employment, etc.).  Correlations between categorical variables don't make much sense, as they imply a linear relationship between the variables.  This would mean a linear relationship between the two sets of categories, which would be informative if the categories represent ordinal variables (increasing and decreasing with inherent order).
 
 # C
 
@@ -176,6 +570,79 @@ Finally, we will train and test a logistic regression algorithm allowing for non
 
 Use 5-fold CV to train and test your algorithms.  Report either 1) the CV prediction accuracy and CV standard error (SE) of this accuracy **or** 2) the CV prediction error and CV standard error (SE) of this error for each of these two models in a labeled `flextable`, based on a 0.5 threshold.  Did the addition of the nonlinear spline terms improve the model fit?  Also, **what quantiles of the predictors were the knots place?**  (Hint: using `ns(bank_data$age, df=4)` will tell you)
 
-```{3c}
+```{r 3c}
+train_test_fn <-
+    function(data=bank_data, y_var="y",
+             x_var=names(bank_data %>% 
+                             select(-c("y"))),
+             method,
+             k_folds=10){
+        
+        # Create partitions
+        tt_indices <- createFolds(y=data[[y_var]], k=k_folds)
+        
+        # CV train and test
+        cv_results <- list()
+        for(i in 1:k_folds){
+            train_data <- data[-tt_indices[[i]],]
+            test_data <- data[tt_indices[[i]],]
+            
+            # Train
+            if(method=="linear"){
+                # Create model formula
+                model_fmrla <- as.formula(paste0("`", y_var, "` ~", 
+                                         paste0("`", x_var, "`", collapse="+")))
+        
+                model_fit <- gam(formula=model_fmrla, 
+                                 family=binomial,
+                                 data=train_data)
+            }else{
+                if(method=="spline"){
+                    cubic_preds <- c("age", "cons.price.idx", "cons.conf.idx")
+                    linear_preds <- x_var[!x_var%in%cubic_preds]
+                    model_fmrla <- as.formula(paste0("`", y_var, "` ~", 
+                                             paste0(linear_preds, collapse = " + "), "+",
+                                             paste0("ns(`", cubic_preds, "`, df=4)", 
+                                                    collapse="+")))
+                    
+                    model_fit <- gam(formula=model_fmrla, 
+                                     family=binomial,
+                                     data=train_data)
+                }else{
+                   stop("No applicable model selected")
+                }
+            }
+            
+            # Test
+            test_data$predicted <- 
+                factor(ifelse(predict(model_fit, newdata=test_data, type="response")>0.5, 
+                       "yes", "no"))
+            
+            # Report metrics
+            cv_results[[i]] <- postResample(test_data$predicted,
+                                            test_data[[y_var]])
+        }
+    
+        # Zip everything together to return
+        cv_results_all <- do.call("rbind", cv_results)
+        return(cv_results_all)
+    }
 
+# Do for linear and spline
+methods <- c("linear", "spline")
+
+analysis_all <- list()
+for(i in 1:length(methods)){
+    analysis_all[[i]] <- data.frame("cv_est"=apply(train_test_fn(method=methods[i]), 
+                                          MARGIN=2, FUN=mean),
+                                    "cv_se"=apply(train_test_fn(method=methods[i]), 
+                                          MARGIN=2, FUN=sd),
+                                    "method"=methods[i])
+}
+
+do.call("rbind", analysis_all)
+
+attr(ns(bank_data$age, df=4), "knots")
 ```
+
+- We have essentially the same prediction accuracy estimates for both the linear and spline models, but much higher SEs for the spline model (as expected due to the more complex model).  Thus, a linear prediction models seems to suffice (though we may want to check the per-class accuracy rates to more robustly compare the models).

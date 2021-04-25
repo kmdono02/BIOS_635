@@ -1,0 +1,362 @@
+---
+title: "Homework 7"
+subtitle: "BIOS 635"
+author: "..."
+date: "4/3/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(e1071)
+library(flextable)
+```
+
+# Introduction
+
+In this assignment, you will practice using support vector machines (SVMs) to create prediction algorithms.  We will use the following datasets seen in lecture (as used with HW 6).
+
+1. cancer_reg.csv (outcome = `TARGET_deathRate`)
+  - Data on cancer fatality rates by county in the US (continuous outcome)
+
+2. Correct_Dataset.csv (outcome = `Target`)
+  - Data on heart disease occurrence for sample of people (categorical outcome)
+  
+You can find metadata on these datasets from file `cancer_data_desc.docx` and https://archive.ics.uci.edu/ml/datasets/heart+disease.  For simplicity, please remove all missing observations from the datasets when they are read in.
+
+# 1
+# A 
+First read in the cancer fatality rate dataset.  Remove the following values from the data: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, `binnedInc` and `Geography`.  Try to predict `TARGET_deathRate` using support vector regression (SVR).  First, consider a linear kernel.  Train and test a linear SVR using all the other variables in the dataset with 5 fold CV.  **Within the CV procedure**, tune the SVR parameters within the training sets only.  Use the default method to tune with `tune` from the `e1071` package.  **What are the parameters you have to tune for a linear SVR?  Also, what is the default method `tune` uses to tune (i.e. how does it select the tuning datasets, bootstrapping, CV, etc.)?  What metric is used to select the ''best'' tuning parameters?**  For these parameters, create a grid of values to evaluate when tuning by selecting 5 values for each parameter.  Finally, report the following:
+
+1. CV error and CV error standard error (SE) for the tuned linear SVR
+2. CV error and CV error SE for the **linear regression model** trained and tested in your 5 fold CV procedure with the same set of predictors as your linear SVR
+
+```{r 1a}
+set.seed(12)
+cancer_data <- read_csv(file = "data/cancer_reg.csv") %>%
+  select(-c("avgAnnCount", "avgDeathsPerYear", "incidenceRate", 
+            "binnedInc", "Geography")) %>% 
+  drop_na()
+
+# 5-fold CV
+tt_indices <- createFolds(y=cancer_data$TARGET_deathRate, k=5)
+mse_per_fold <- list()
+mse_per_fold_regress <- list()
+
+for(i in 1:5){
+  train_data <- cancer_data[-tt_indices[[i]],]
+  test_data <- cancer_data[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, TARGET_deathRate~., data=train_data, kernel ="linear",
+         ranges = list(gamma = 0.035, 
+                       cost = 1:5,
+                       epsilon = seq(from=0.1, to=0.5, by=0.1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  test_data$predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+  lm_fit <- lm(TARGET_deathRate~., data=train_data)
+  test_data$predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = test_data$predict_svm,
+                                    obs = test_data$TARGET_deathRate)
+  mse_per_fold_regress[[i]] <- postResample(pred = test_data$predict_lm,
+                                    obs = test_data$TARGET_deathRate)
+}
+
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+
+mse_all_folds_regress <- do.call("rbind", mse_per_fold_regress)
+mse_all_folds_regress <- cbind(mse_all_folds_regress, 
+                               "MSE"=(mse_all_folds_regress[,"RMSE"])^2)
+
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+
+# Do same for regression
+regress_cv_results <- data.frame("Method"="lm",
+                    "CV_MSE"=mean(mse_all_folds_regress[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds_regress[,"MSE"]))
+
+# Print results in flextable (not needed, but useful)
+all_results <- rbind(svm_cv_results, regress_cv_results)
+
+flextable(all_results)
+```
+
+For a linear SVM, we must tune 3 parameters; 1) cost (width of region around the boundary which determines which points can be support vectors), 2) gamma (slope parameter) and 3) epsilon.  By default, `tune` uses 10-fold CV on the supplied dataset (for example, training set) to determine which parameter set is the best performing among the sets in the specified grid.
+
+# B 
+Now, consider using a nonlinear SVR.  Specifically, due to its flexibility, you will use a **radial basis** kernel.  You will use all of the same training, tuning, and testing procedures for this algorithm as you used for 1A.  The parameters you will tune are $\gamma$, cost $C$, and $\epsilon$.  Include the following in your response:
+
+1. Tune all three parameters by creating grid with the following values: $\gamma=\{0.001, 0.05, 0.1\}$, $C=\{1, 2, 3\}$, and $\epsilon=\{0.1, 0.5, 1.0\}$.  This can be easily done using `tune`.
+2. Report the same metrics as done in 1A (you don't need to fit any regression model for 1B)
+3. Compare the error rates in 1A and 1B between all three models (linear SVR, linear regression, nonlinear SVR).  Do you see any improvement between the linear and nonlinear SVR algorithms?  
+4. How do linear SVR and linear regression differ as methods (i.e. not comparing the results, explaining the difference in how they are formulated)?
+5. Right down the formula for the radial basis kernel (see lecture slides).  Consider $\gamma=1/\sigma$ (i.e. for a $\gamma=0.5$, this is equivalent to $\sigma=2$).  Interpret what $\sigma$ (and thus $\gamma$, though it is easier to interpret with respect to $\sigma$) is doing in the kernel function.
+
+**Hint for 1B part 5**: $||X-Y||^2$ is simply a measure of ''distance'' between predictors $X$ and $Y$
+
+```{r 1b}
+# 5-fold CV
+set.seed(12)
+tt_indices <- createFolds(y=cancer_data$TARGET_deathRate, k=5)
+mse_per_fold <- list()
+
+for(i in 1:5){
+  train_data <- cancer_data[-tt_indices[[i]],]
+  test_data <- cancer_data[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, TARGET_deathRate~., data=train_data, kernel="radial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       epsilon = c(0.1, 0.5, 1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  test_data$predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+  lm_fit <- lm(TARGET_deathRate~., data=train_data)
+  test_data$predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = test_data$predict_svm,
+                                    obs = test_data$TARGET_deathRate)
+}
+
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+
+# Print results in flextable (not needed, but useful)
+
+flextable(svm_cv_results)
+```
+
+3. We see notable improvement (lower average error) in CV MSE between the nonlinear radial SVM and the linear SVM, as well as linear regression.  This implies that a nonlinear relationship between cancer mortality rate and the predictors is a more accurate model then a linear one.  We see that linear regression has the lowest MSE, which likely due to the generality of the model while the SVM models are more data-driven (example of the bias-variance tradeoff).
+
+4. The linear and radial (nonlinear) SVM differ only in how the objective function to be minimized is specified (i.e., the function that denotes the distance between the observed data and the boundary), creating a different shaped boundary based on the radial vs. linear shape.  The computational process of training the algorithm is the same, as our the parameters (cost, gamma, epsilon).
+
+5. The radial kernel is denoted by 
+
+$$
+\begin{align}
+& K(X,Y)=\exp(-\gamma||X-Y||^2)=\exp(-\frac{1}{\sigma}||X-Y||^2) \text{ or }\\
+& K(x_i,x_{i^{'}})=\exp(-\frac{1}{\sigma}\sum_{j=1}^p(x_{ij}-x_{i^{'}j})^2)
+\end{align}
+$$
+
+which measures the distance between two observations predictor vectors ($p$ predictors).  We can see that $\gamma=1/\sigma$ is scaler for the distance between the vectors, with increasing $\sigma$ $\rightarrow$ decreasing $\gamma$ (towards 0), which $\rightarrow$ a shrinking of the weight given to large distances, and vice versa for decreasing $\sigma$ and an increasing of the weight.  We see that this is the same "kernel" that appears in the normal distribution's density function, with $\sigma$ denoting standard deviation (lower $\sigma$ means curve is tightly centered around mean, higher $\sigma$ means curve is spread out).
+
+# 2
+# A
+Read in the heart disease dataset.  **Note that missing values in the data are denoted by an empty cell, string "NA" and string "?".  Use the `na` argument to make sure R correctly denotes these values as NA.**  Also, re-group the outcome `Target` so that those greater then 0 equal 1 and treat this as categorical (two classes: 0, 1).
+
+Now, train and test a SVM algorithm to predict `Target`.  Use a linear kernel, and do the same process as was used in 1A when training, tuning, and testing.  Report the following:
+
+1. CV sensitivity and specificity and corresponding CV SEs for the tuned linear SVM
+2. CV sensitivity and specificity and corresponding CV SEs for the **logistic regression** model using a 0.5 threshold, using all other variables in the dataset as predictors
+
+Additionally, answer the following questions:
+
+1. The dataset contains categorical predictors.  How does SVM handle these when creating the algorithm?  What limitations does this pose when creating the algorithm?
+2. How are logistic regression and linear SVM related in relation to their respective **loss functions?**  What is meant by a ''loss function'' and how is it related to the machine learning framework of training an algorithm?
+
+```{r}
+heart_data <- read_csv("data/Correct_Dataset.csv",
+                       na=c("", "NA", "?")) %>%
+  mutate(Target=factor(ifelse(Target>=1, 1, Target))) %>%
+  drop_na()
+
+set.seed(12)
+tt_indices <- createFolds(y=heart_data$Target, k=5)
+error_per_fold <- list()
+error_per_fold_regress <- list()
+
+for(i in 1:5){
+  train_data <- heart_data[-tt_indices[[i]],]
+  test_data <- heart_data[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Target~., data=train_data, kernel ="linear",
+         ranges = list(gamma = 0.035, 
+                       cost = 1:5,
+                       epsilon = seq(from=0.1, to=0.5, by=0.1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  test_data$predict_svm <- predict(svm_tuned, newdata=test_data,
+                                   type="response")
+  
+  # Create linear regression model
+  lm_fit <- glm(Target~., data=train_data, family=binomial)
+  test_data$predict_lm <- factor(ifelse(predict(lm_fit, newdata=test_data,
+                                   type="response")>0.5,1,0))
+  
+  # Store MSE
+  error_per_fold[[i]] <- confusionMatrix(data = test_data$predict_svm,
+                                    reference = test_data$Target)$byClass
+  error_per_fold_regress[[i]] <- confusionMatrix(data = test_data$predict_lm,
+                                    reference = test_data$Target)$byClass
+}
+
+# Bind together, add MSE
+error_all_folds <- do.call("rbind", error_per_fold)
+
+error_all_folds_regress <- do.call("rbind", error_per_fold_regress)
+mse_all_folds_regress <- cbind(mse_all_folds_regress, 
+                               "MSE"=(mse_all_folds_regress[,"RMSE"])^2)
+
+# Get mean and SE MSE
+svm_cv_results <- 
+  data.frame("Method"="svm",
+             "CV_MSE"=apply(error_all_folds[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+# Do same for regression
+regress_cv_results <- 
+  data.frame("Method"="lm",
+             "CV_MSE"=
+               apply(error_all_folds_regress[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds_regress[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+# Print results in flextable (not needed, but useful)
+all_results <- rbind(svm_cv_results, regress_cv_results)
+
+flextable(all_results)
+```
+
+1. Since SVM uses distance between the predictor values and the proposed boundary when computing, it converts the categorical variables to be numeric.  This may not a problem when the values are ordinal and the difference between each value represents an equal level of change (increasing or decreasing).  However, if the variable is nominal, this simplification to numeric may not capture the nonlinear differences between the categories and how these might relate back to the outcome of interest, which may impact the ability for SVM to predict the outcome "well" relative to other methods which can capture the nominal nature of the categories.
+
+2. Linear SVM and logistic regression are related in their respective "loss functions", i.e. the metrics used to compute "error" which is then minimized to create the final algorithm.  Linear SVM uses what is called a *hinge loss* function, which eventually shrinks to exactly 0 for predictor values inside the region around the boundary created by the chosen cost function.  The logistic regression loss function is essentially the same, expect for points close together, the loss function decreases continually towards zero but is never exactly 0 (unless the two points are the same).  This can result in slightly different performance when the classes are nearly separable, and very similar performance otherwise (as seen in this dataset).  The loss function forms the foundation of machine learning algorithms, with the function representing some measure of error which you minimize to create your prediction algorithm (ex. mean squared error in the training set between the points and your "line of best fit").
+
+# B
+Now, consider creating a nonlinear SVM.  In this case, you will use a polynomial kernel. Again, use the same training, tuning, and testing methods used before.  
+
+1. Write down the polynomial kernel.  What are the tuning parameters for a polynomial kernel?  Also interpret these parameters.  
+
+2. Based on this, you will consider the following parameter values for your grid when tuning: cost $C=\{1, 2, 3\}$, $\gamma=\{0.001, 0.05, 0.1\}$, and $d=\{2,3\}$.  **What metric is used to select the ''best'' tuning parameters?**  What additional tuning parameter is not included in this grid, and what is it being fixed at?  Report the CV sensitivity and specificity and corresponding CV SEs for the tuned nonlinear SVM.
+
+3. Finally, compare the CV results between the linear and nonlinear SVMs.  Did the more complicated SVM kernel improve the performance?
+```{r}
+set.seed(12)
+tt_indices <- createFolds(y=heart_data$Target, k=5)
+error_per_fold <- list()
+error_per_fold_regress <- list()
+
+for(i in 1:5){
+  train_data <- heart_data[-tt_indices[[i]],]
+  test_data <- heart_data[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Target~., data=train_data, kernel ="polynomial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       d = 2:3))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  test_data$predict_svm <- predict(svm_tuned, newdata=test_data,
+                                   type="response")
+  
+  # Create linear regression model
+  lm_fit <- glm(Target~., data=train_data, family=binomial)
+  test_data$predict_lm <- factor(ifelse(predict(lm_fit, newdata=test_data,
+                                   type="response")>0.5,1,0))
+  
+  # Store MSE
+  error_per_fold[[i]] <- confusionMatrix(data = test_data$predict_svm,
+                                    reference = test_data$Target)$byClass
+  error_per_fold_regress[[i]] <- confusionMatrix(data = test_data$predict_lm,
+                                    reference = test_data$Target)$byClass
+}
+
+# Bind together, add MSE
+error_all_folds <- do.call("rbind", error_per_fold)
+
+error_all_folds_regress <- do.call("rbind", error_per_fold_regress)
+mse_all_folds_regress <- cbind(mse_all_folds_regress, 
+                               "MSE"=(mse_all_folds_regress[,"RMSE"])^2)
+
+# Get mean and SE MSE
+svm_cv_results <- 
+  data.frame("Method"="svm",
+             "CV_MSE"=apply(error_all_folds[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+# Do same for regression
+regress_cv_results <- 
+  data.frame("Method"="lm",
+             "CV_MSE"=
+               apply(error_all_folds_regress[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds_regress[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+# Print results in flextable (not needed, but useful)
+all_results <- rbind(svm_cv_results, regress_cv_results)
+
+flextable(all_results)
+```
+
+2. Misclassification error is used as the tuning metrics
+
+3. The nonlinear kernel did not notably improve performance.  The CV sensitivities and specificities are essentially the same, though the logistic regression model showed lower SEs (as expected, more specific model vs SVM which is more data-driven).
+
+# C
+Now, you answer some questions about SVM as a method (all of these are just written responses, no code or analysis needed):
+
+## i
+Consider the case where you have a large number of predictors (consider $p>n$).  Why would SVM work in this case while linear or logistic regression have trouble training an algorithm?  What is an alternative regression method one could use to deal with this large number of predictors issue?
+
+**SVM would work in this case as it is not using maximum likelihood or least squares estimation to compute the algorithm (like logistic and linear regression respectively do).  Alternatively, one could take a penalized regression approach such as LASSO to construct a regression model-based prediction algorithm in the $p>n$ scenario.**
+
+## ii
+Nonlinear kernels have a large number of tuning parameters compared to linear SVM and penalized regression.  Recall we use a grid search to tune SVM.  What complications does this create when training and tuning?  Why might this cause a nonlinear SVM to preform worse then a linear prediction method, even if a nonlinear method may predict better?
+
+**Since we use a grid search to tune the SVM, a concern is that the "best" set of parameters may not be in our grid, resulting in a sub-optimal SVM algorithm compared what could be computed if we included this best set in our grid.  Since we don't know this set a priori, we are at risk of not examining it when tuning.  This is especially a concern with nonlinear SVM as these kernels have a larger number of parameters then the linear SVM kernel, which increases the risk of not capturing the best possible nonlinear SVM model.  This may erroneously make it look like a nonlinear SVM provides no benefit.**
+
+## iii
+Recall when comparing SVM to logistic regression, we used a 0.5 threshold.  Why might this not be a fair comparison between the two methods (focus on the threshold)?  How might you choose a threshold in a data-driven way so that you are comparing the ''best'' logistic regression to SVM?  Why would this be a more accurate comparison?**
+
+**We have seen that the performance of an algorithm can depend greatly on the probability threshold used when creating a categorical prediction.  With logistic regression, estimated probabilities are returned and thus must be thresholded to create categorical predictions.  However, SVM does not go through a probability model and directly goes through the categorical outcome instead in its formulation and computation (see the objection function in the SVM slides which is minimized).  Thus, choosing a probability threshold is not needed.  Thus, to compare SVM to logistic regression at its best, especially for unbalanced data, we should find the best performing threshold for logistic regression to do a fair comparison.  We can do this using a ROC analysis, which the "best" threshold chosen based on the points on the ROC curve (ex. maximum Youden's index).**
