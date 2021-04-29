@@ -157,7 +157,8 @@ ggplot(data=confusion_matrix_df, mapping=aes(x=obs, y=pred, fill=count))+
   theme_minimal()
 
 # Heatmap with PCs
-
+ggplot(data=brain_data_w_pcs, aes(x=`Comp.1`, y=`Comp.2`, fill=RiskGroup))+
+  geom_raster()
 
 
 ```

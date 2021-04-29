@@ -1,0 +1,108 @@
+---
+title: "BIOS 635: Deep Learning in Python and R"
+author: "Kevin Donovan"
+date: "4/29/2021"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 6, fig.height = 3)
+```
+
+```{r packages, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(caret)
+library(rmarkdown)
+```
+
+# Deep Learning
+
+<center>
+  <figure>
+    <img src='images/neural_network_example.png' alt='missing' width="1000"/>
+  </figure>
+</center>
+
+# Deep Learning
+
+- We've discussed deep learning conceptually, but how do we implement?
+- Main packages: `TensorFlow` and `Keras` in **Python**
+- **Python** is a general computing language with packages to add-in stats functionality 
+  - Packages: `pandas`, `numpy`, `scipy`, ...
+
+<center>
+  <figure>
+    <img src='images/p2_v_p3.jpg' alt='missing' width="1000"/>
+  </figure>
+</center>
+
+# Python
+
+:::: {style="display: flex;"}
+
+::: {}
+- Object-Oriented Programming Language (similar to R)
+- Main IDE: Spyder
+:::
+
+::::
+
+:::: {style="display: flex;"}
+
+::: {}
+<figure>
+    <img src='images/spyder.png' alt='missing' width="400"/>
+</figure>
+:::
+
+::: {}
+<figure>
+    <img src='images/spyder_ex.png' alt='missing' width="650"/>
+</figure>
+:::
+
+::::
+
+# Python
+
+- Keeping track of packages and which are installed is cumbersome in Python
+- Solution: `Anaconda`
+  - Create *environments*
+  
+<center>
+  <figure>
+    <img src='images/anaconda_environments.png' alt='missing' width="700"/>
+  </figure>
+</center>
+
+# Live Python Example
+- See video lecture
+
+# Deep Learning in R
+
+:::: {style="display: flex;"}
+
+::: {}
+- Luckily, `TensorFlow` and `Keras` have been officially ported to R
+  - https://tensorflow.rstudio.com/
+  - https://keras.rstudio.com/
+:::
+
+::::
+
+:::: {style="display: flex;"}
+
+::: {}
+<figure>
+    <img src='images/Allaire-DLwithR-HI.png' alt='missing' width="350"/>
+</figure>
+:::
+
+::: {}
+<figure>
+    <img src='images/Chollet-DLP-HI.png' alt='missing' width="360"/>
+</figure>
+:::
+
+::::
