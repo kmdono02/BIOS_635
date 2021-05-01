@@ -1,0 +1,224 @@
+---
+title: "Homework 8"
+subtitle: "BIOS 635"
+author: "..."
+date: "4/17/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(factoextra)
+library(gtsummary)
+library(pROC)
+library(summarytools)
+```
+
+# Introduction
+
+In this assignment, you will practice using unsupervised learning and clustering to analyze gene expression data from patients with cancer.  Metadata for the dataset can be found at https://www.kaggle.com/crawford/gene-expression.
+
+There are three datasets.  One include the diagnoses for the patients (actual.csv) with one cancer type denoted `AML` and the other denoted `ALL`.  Additionally, there are two sets of gene expression data.  These are ~50:50 splits for the 72 patients, one denoted initial and the other denoted independent.  We will use the initial to train and then the independent to train.
+
+# 1
+# A 
+First, read in the 3 datasets.  From these, create 4 datasets which you will use for the analyses; `train_x`, `train_y`, `test_x`, and `test_y`.  The IDs in the actual.csv dataset are in order from initial (1st 38 observations) to independent (last 34 observations).  From actual.csv, create `train_y` consisting of the 1st 38 observations and `test_y` consisting of the last 34.
+
+Next we will create the predictor datasets `train_x` and `test_x`.  First, read in the two gene expression datasets (in CSV format).  Then, remove all variables with the string "Call" from both datasets (these won't be needed) as well as the column "Gene Description".  Finally, note these datasets are in an odd form: each gene is denoted by the column "Gene Accession Number", and the expression for that gene for a given ID is denoted as a number column (39, 40, ...).  We need to transpose this so that each row is a different ID.  That is convert the data to long form, where each current row (gene) is a new column and each current column (ID) is in the 1st column labelled "ID".  Do this for both datasets, resulting in `train_x` and `ttest_x`.
+
+```{r}
+# Create training predictor data
+train_x_long <- read_csv("data/data_set_ALL_AML_train.csv")
+
+train_x_wide <- train_x_long %>% select(-"Gene Description", -starts_with("call")) %>%
+  pivot_longer(cols = 2:39, names_to = "patient", values_to = "gene_expression") %>%
+  pivot_wider(id_cols = "patient", names_from = "Gene Accession Number", 
+              values_from = "gene_expression") %>%
+  mutate(patient=as.numeric(patient)) %>%
+  arrange(patient)
+
+# Create testing predictor data
+test_x_long <- read_csv("data/data_set_ALL_AML_independent.csv")
+
+test_x_wide <- test_x_long %>% select(-"Gene Description", -starts_with("call")) %>%
+  pivot_longer(cols = 2:35, names_to = "patient", values_to = "gene_expression") %>%
+  pivot_wider(id_cols = "patient", names_from = "Gene Accession Number", 
+              values_from = "gene_expression")%>%
+  mutate(patient=as.numeric(patient)) %>%
+  arrange(patient)
+
+# Create outcome train, test data
+y_all <- read_csv("data/actual.csv")
+y_train <- y_all %>% filter(patient %in% train_x_wide$patient)
+y_test <- y_all %>% filter(patient %in% test_x_wide$patient)
+```
+
+# B
+Now, we will try using Principal Components Analysis (PCA) to reduce the dimension of the predictor space which is currently very large (due to the large number of genes).  Using `train_x`, run PCA on the gene expression data.  You will do this in the following steps
+
+1) Run PCA and create a scree plot showing the % of variation in the data contained by each component
+2) How many components would you choose to summarize the data?  Provide justification for whatever you choose.  Regardless of your choice, create a dataset consisting of each person's PC scores.  Plot these two PC scores on a two-dimensional plot.
+3) Create a second plot of these two PC scores, but include their diagnosis from the `train_y` dataset as colors for the points.  Include the mean PC1 and PC2 values with a 95% confidence ellipse for each group.  Finally, include a summary statistics table using `tbl_summary` comparing the mean and SD for each PC by diagnosis.  Include a p-value from the hypothesis test that these means are different
+
+```{r}
+# Run PCA on training data
+# Need to use princomp due to p>n
+pca_fit <- prcomp(x=train_x_wide %>% select(-patient), center=TRUE, scale=TRUE)
+
+# Scree plot
+fviz_eig(pca_fit)
+
+# Scatterplot of components (only 2)
+fviz_pca_ind(pca_fit, 
+             col.ind = y_train$cancer, # color by cases_vs_deaths
+             #adding 95% confidence ellipses for each group
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Cancer Type",
+             repel = TRUE) 
+
+# Create summary statistics
+scores_train <- data.frame(predict(pca_fit, newdata = train_x_wide)[,1:2])
+
+## First add in patient ID and cancer diagnosis
+scores_train$patient <- train_x_wide$patient
+scores_train$cancer <- y_train$cancer
+
+tbl_summary(scores_train, by="cancer", include=c("PC1", "PC2", "cancer"),
+            statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
+  add_n() %>%
+  add_p(list(all_continuous() ~ "aov"))
+```
+
+Based on the scree-plot, one could justify many options for the number of components to use.  There seems to be a drop from 3 to the rest, indicating that the first 3 add the most amount of variability, while the others add in less.  5 components is another option (decent drop from 5 to 6).
+
+# C
+Now, we try to use these PCs to group the patients in the training dataset.  First, we will consider unsupervised subgrouping using K-means.  You will do this in the following steps
+
+1) Using the PC scores from the `train_x` data analysis, run K-means clustering.  Fit cluster numbers from 1 to 8.  **Make sure to standardize the PCs before running K-means!**
+2) Compute AIC and BIC for each number of clusters tried in part 1 above.  Plot BIC on the Y axis and number of clusters on the X-axis.  Include a dotted red horizontal and vertical line where BIC is minimized.  Do you need to try larger numbers of clusters or does it look like a maximum of 8 clusters was sufficient?
+3) Finally, re-do the plot in 1B bullet 3, but group by cluster instead
+
+```{r}
+# Scale PC scores
+train_x_wide_scaled <- data.frame("patient"=train_x_wide$patient, 
+                             scale(train_x_wide %>% select(-patient)))
+
+# Create function to compute AIC, BIC
+kmeansAICBIC = function(fit){
+m = ncol(fit$centers)
+n = length(fit$cluster)
+k = nrow(fit$centers)
+D = fit$tot.withinss
+return(data.frame(AIC = D + 2*m*k,
+                  BIC = D + log(n)*m*k))
+}
+
+# Run K-Means clustering, for various clusters
+clus <- list()
+aic_bic <- list()
+clus_num <- c()
+
+for(j in 1:8){
+  clus[[j]] <- 
+    kmeans(x=train_x_wide_scaled%>%select(-patient),
+              centers=j, nstart=10)
+  aic_bic[[j]] <- kmeansAICBIC(clus[[j]])
+  clus_num[j] <- j
+}
+
+clus_total_all_criterion <- data.frame("no_of_clus" = clus_num, 
+                                       do.call("rbind", aic_bic))
+# Find min. BIC
+clus_min_bic <-
+  which(clus_total_all_criterion$BIC==min(clus_total_all_criterion$BIC))
+
+# Plot BIC
+ggplot(data=clus_total_all_criterion, mapping=aes(x=no_of_clus,
+                                                  y=BIC))+
+  geom_point()+
+  geom_line()+
+  geom_hline(yintercept = clus_total_all_criterion$BIC[clus_min_bic],
+             linetype="dashed", color="red")+
+  geom_vline(xintercept = clus_total_all_criterion$no_of_clus[clus_min_bic],
+             linetype="dashed", color="red")+
+  theme_bw()
+
+# Add in clusters
+train_data_x_clus <- data.frame(train_x_wide_scaled, 
+                                "clus"=factor(clus[[clus_min_bic]]$cluster),
+                                scores_train)
+
+fviz_pca_ind(pca_fit, 
+             col.ind = train_data_x_clus$clus, # color by cases_vs_deaths
+             #adding 95% confidence ellipses for each group
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Cluster",
+             repel = TRUE)
+```
+
+The BIC plot has a sharp minimum at 2 clusters with a steady increase after, implying a maximum of 8 clusters in sufficient.
+
+# D
+Finally, we will try to use the PCs to predict cancer diagnosis.  For simplicity, we ill use KNN classification.  You will do this in the following steps
+
+1) Using the PC scores from the analysis `train_x` and the outcomes in `train_y`, tune and train a KNN model on this training data (remember to scale and center your predictors)
+2) Using the loadings from your PCA, compute PC scores for the data in `test_x` (test set).  Then, apply your KNN algorithm on the test set and predict the cancer diagnosis from these PC scores.  Report the usual confusion matrix as well the ROC curve and area under the curve (AUC).  **Why might using the PCs to create a prediction algorithm be a better method then using the actual gene expression variables (Hint: think overfitting and the bias-variance tradeoff)?**
+3) Lastly, let's see how well your K-means clusters in the `train_x` analyses related to the diagnosis in `train_y` as a form of "external validation".  Create a frequency table showing the number of percentage of patients in each diagnosis group in each of your clusters.  Do you see any sort of relationship visually based on this table between your clusters and patient diagnosis?
+
+```{r}
+# Train KNN
+train_knn <- train(data=train_data_x_clus %>% select(PC1, PC2, cancer), 
+      cancer~PC1+PC2,
+      preProcess = c("center", "scale"),
+      method="knn",
+      tuneLength=10)
+
+# Test KNN
+test_x_wide_scores <- data.frame("patient"=y_test$patient,
+                                 "cancer"=factor(y_test$cancer),
+                                 predict(pca_fit, newdata=test_x_wide)[,1:2])
+
+test_x_wide_scores$predict_knn <- factor(predict(train_knn, newdata=test_x_wide_scores))
+confusionMatrix(data=test_x_wide_scores$predict_knn, 
+                reference=test_x_wide_scores$cancer)
+
+# ROC analysis
+test_x_wide_scores$predict_knn_prob <- 
+  predict(train_knn, newdata=test_x_wide_scores, type="prob")$AML
+
+roc_fit <- roc(predictor=test_x_wide_scores$predict_knn_prob,
+               response=test_x_wide_scores$cancer)
+
+ggroc(roc_fit)+
+  geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1),
+                 color="darkgrey", linetype="dashed")+
+  theme_bw()+
+  geom_text(mapping=aes(x=0.75, y=0.9, label=paste0("AUC = ", 
+                                                    round(auc(roc_fit), 2))),
+            size=7.5)
+
+```
+
+```{r, results='asis', echo = FALSE}
+# Externally validate
+st_css(bootstrap = FALSE)
+print(ctable(x = train_data_x_clus$cancer, 
+             y = train_data_x_clus$clus, 
+             prop = c("r")),
+      method = "render")
+```
+
+It seems that cluster 2 is almost exclusively composed of those with cancer type ALL, though cluster 1 is a mix of both cancer types so it is unclear if and how the clusters are related to cancer type.  We need to dig into the clusters further, with potentially other external variables, to understand them better and see if they have any scientific/medical utility.
+
+
+
+
