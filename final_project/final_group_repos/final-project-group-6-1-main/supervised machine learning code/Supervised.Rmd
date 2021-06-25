@@ -1,0 +1,206 @@
+---
+title: "635FinalProject"
+author: "Zhitong Yu"
+date: "4/23/2021"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(corrplot)
+library("PerformanceAnalytics")
+library(gtsummary)
+library(flextable)
+library(caret)
+library(glmnet)
+library(e1071)
+```
+
+```{r, fig.width=14, fig.height=10}
+food_data <- read_csv("Food_Supply_kcal_Data.csv")
+head(food_data)
+sum(food_data[1,2:24])
+
+food_data <- food_data  %>%
+  drop_na() %>%
+  mutate(Confirmed_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = as.character(ifelse(Confirmed_per_capita > median(Confirmed_per_capita), "Above", "Below")), 
+         Deaths_vs_median = as.character(ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below")))
+
+food_data <- food_data %>%
+  select(-Miscellaneous, -Obesity, -Undernourished, -Recovered, -Active, -Population, -`Unit (all except Population)`, 
+         -Confirmed, -Deaths)
+head(food_data)
+corrplot(is.corr=TRUE, cor(food_data[,2:24], use="pairwise.complete.obs"), method="number")
+chart.Correlation(food_data[,2:24], histogram=TRUE)
+
+# summary statistics
+food_data_1 <- food_data %>%
+  select(-Deaths_vs_median, -Country)
+tbl_summary(data = food_data_1, by = "Cases_vs_median",
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n}({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table() %>%
+  bold(part = "header")
+
+food_data_2 <- food_data %>%
+  select(-Cases_vs_median, -Country)
+tbl_summary(data = food_data_2, by = "Deaths_vs_median",
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n}({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table() %>%
+  bold(part = "header")
+
+```
+
+```{r}
+# prepare data for cross validation
+food_data <- food_data %>%
+  # delete country since only each country has only one observation
+  select(-`Animal Products`, -Country)
+food_data %>% head()
+
+```
+
+
+```{r}
+# numeric 
+set.seed(123)
+cv_folds_10 = createFolds(y=food_data$Confirmed_per_capita, k=10)
+result_lm <- list()
+result_knn <- list()
+result_lasso <- list()
+result_ridge <- list()
+      for(f in 1:length(cv_folds_10)){
+        food_data_train_cv_10 <- food_data[-cv_folds_10[[f]],]
+        food_data_test_cv_10 <- food_data[cv_folds_10[[f]],]
+        lm_fit = lm(Confirmed_per_capita~.-Deaths_per_capita-Cases_vs_median-Deaths_vs_median, data = food_data_train_cv_10)
+        knn_fit = train(Confirmed_per_capita~.-Deaths_per_capita-Cases_vs_median-Deaths_vs_median, data = food_data_train_cv_10, 
+                         method = "knn", tuneLength = 20, preProcess = c("scale", "center"),
+                        trControl = trainControl(method="cv", number = 5))
+        lasso_fit = cv.glmnet(x = data.matrix(food_data[,c(1:21)]), y = data.matrix(food_data[,22]), alpha=1)
+        ridge_fit = cv.glmnet(x = data.matrix(food_data[,c(1:21)]), y = data.matrix(food_data[,22]), alpha=0)
+        
+        #linear
+        food_data_test_cv_10$Confirmed_lm_predict <- predict(lm_fit, newdata = food_data_test_cv_10)
+        result_lm[[f]] = mean((food_data_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_lm_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_lm_predict)
+        #knn
+        food_data_test_cv_10$Confirmed_knn_predict <- predict(knn_fit, newdata = food_data_test_cv_10)
+        result_knn[[f]] = mean((food_data_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_knn_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_knn_predict)
+        #lasso
+        food_data_test_cv_10 = as.data.frame(food_data_test_cv_10)
+        food_data_test_cv_10$Confirmed_lasso_predict <- as.matrix(cbind(1,food_data_test_cv_10[,c(1:21)])) %*% coef(lasso_fit, s = "lambda.min")
+        result_lasso[[f]] = mean((food_data_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_lasso_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_lasso_predict)        
+        #ridge
+        food_data_test_cv_10$Confirmed_ridge_predict <- as.matrix(cbind(1,food_data_test_cv_10[,c(1:21)])) %*% coef(ridge_fit, s = "lambda.min")
+        result_ridge[[f]] = mean((food_data_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_ridge_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_ridge_predict)
+      }
+
+data.frame_lm = data.frame("CV_error" = mean(unlist(result_lm)), "CV_error_SE" = sd(unlist(result_lm)))
+data.frame_knn = data.frame("CV_error" = mean(unlist(result_knn)), "CV_error_SE" = sd(unlist(result_knn)))
+data.frame_lasso = data.frame("CV_error" = mean(unlist(result_lasso)), "CV_error_SE" = sd(unlist(result_lasso)))
+data.frame_ridge = data.frame("CV_error" = mean(unlist(result_ridge)), "CV_error_SE" = sd(unlist(result_ridge)))
+rbind("Linear Regression" = data.frame_lm, "KNN" = data.frame_knn, "Lasso" = data.frame_lasso, "Ridge" = data.frame_ridge)
+
+```
+
+
+
+```{r}
+# categorical
+set.seed(123)
+cv_folds_10 = createFolds(y=food_data$Cases_vs_median, k=10)
+result_logistic <- list()
+result_knn <- list()
+result_linear_svm <- list()
+result_radial_svm <- list()
+result_polynomial_svm <- list()
+food_data %>% head()
+food_data <- food_data %>%
+  mutate(Cases_vs_median = as.factor(ifelse(Cases_vs_median == "Above",1,0)),
+         Deaths_vs_median = as.factor(ifelse(Deaths_vs_median == "Above",1,0)))
+
+
+      for(f in 1:length(cv_folds_10)){
+        food_data_train_cv_10 <- food_data[-cv_folds_10[[f]],]
+        food_data_test_cv_10 <- food_data[cv_folds_10[[f]],]
+        knn_fit <- train(Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, 
+                         method = "knn", tuneLength = 20, preProcess = c("scale", "center"),
+                        trControl = trainControl(method="cv", number = 5))
+        logistic_fit <- glm(Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, family = binomial())
+        svr_linear_tune <- tune(svm, Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, kernel ="linear")
+        linear_svm_fit <- svr_linear_tune$best.model
+        svr_radial_tune <- tune(svm, Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, kernel ="radial")
+        radial_svm_fit <- svr_radial_tune$best.model
+        svr_polynomial_tune <- tune(svm, Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, kernel ="polynomial")
+        polynomial_svm_fit <- svr_polynomial_tune$best.model
+
+        # knn
+        food_data_test_cv_10$Confirmed_knn_predict <- predict(knn_fit, newdata = food_data_test_cv_10)
+        result_knn[[f]] <- 1-confusionMatrix(data = food_data_test_cv_10$Confirmed_knn_predict, reference = as.factor(food_data_test_cv_10$Cases_vs_median))$overall[1]
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_knn_predict)
+        #logistic
+        food_data_test_cv_10$Confirmed_logistic_predict_num <- predict(logistic_fit, newdata = food_data_test_cv_10, type="response", na.action=na.exclude)
+        food_data_test_cv_10$Confirmed_logistic_predict <- as_factor(ifelse(food_data_test_cv_10$Confirmed_logistic_predict_num >= 0.5, 1, 0))
+        result_logistic[[f]] <- 1- confusionMatrix(data = food_data_test_cv_10$Confirmed_logistic_predict, reference = as.factor(food_data_test_cv_10$Cases_vs_median))$overall[1]
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_logistic_predict, -Confirmed_logistic_predict_num )
+        # linear svm
+        food_data_test_cv_10$Confirmed_linear_svm_predict <- predict(linear_svm_fit, newdata = food_data_test_cv_10)
+        result_linear_svm[[f]] <- 1- confusionMatrix(data = food_data_test_cv_10$Confirmed_linear_svm_predict, reference = as.factor(food_data_test_cv_10$Cases_vs_median))$overall[1]
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_linear_svm_predict)
+        # radial svm
+        food_data_test_cv_10$Confirmed_radial_svm_predict <- predict(radial_svm_fit, newdata = food_data_test_cv_10)
+        result_radial_svm[[f]] <- 1- confusionMatrix(data = food_data_test_cv_10$Confirmed_radial_svm_predict, reference = as.factor(food_data_test_cv_10$Cases_vs_median))$overall[1]
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_radial_svm_predict)
+        # polynomial svm
+        food_data_test_cv_10$Confirmed_polynomial_svm_predict <- predict(polynomial_svm_fit, newdata = food_data_test_cv_10)
+        result_polynomial_svm[[f]] <- 1- confusionMatrix(data = food_data_test_cv_10$Confirmed_polynomial_svm_predict, reference = as.factor(food_data_test_cv_10$Cases_vs_median))$overall[1]
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_polynomial_svm_predict)
+      }
+
+data.frame_knn = data.frame("CV_error" = mean(unlist(result_knn)), "CV_error_SE" = sd(unlist(result_knn)))
+data.frame_logistic = data.frame("CV_error" = mean(unlist(result_logistic)), "CV_error_SE" = sd(unlist(result_logistic)))
+data.frame_linear_svm = data.frame("CV_error" = mean(unlist(result_linear_svm)), "CV_error_SE" = sd(unlist(result_linear_svm)))
+data.frame_radial_svm = data.frame("CV_error" = mean(unlist(result_radial_svm)), "CV_error_SE" = sd(unlist(result_radial_svm)))
+data.frame_polynomial_svm = data.frame("CV_error" = mean(unlist(result_polynomial_svm)), "CV_error_SE" = sd(unlist(result_polynomial_svm)))
+
+rbind("KNN" = data.frame_knn, "Logistic Regression" = data.frame_logistic, "Linear SVM" = data.frame_linear_svm, "Radial SVM" = data.frame_radial_svm, "Polynomial SVM" = data.frame_polynomial_svm)
+
+```
+        lasso_fit = cv.glmnet(x = data.matrix(food_data[,c(1:21)]), y = data.matrix(food_data[,24]), alpha=1)
+        ridge_fit = cv.glmnet(x = data.matrix(food_data[,c(1:21)]), y = data.matrix(food_data[,24]), alpha=0)
+qda_fit = train(Cases_vs_median~.-Confirmed_per_capita -Deaths_per_capita -Deaths_vs_median, data = food_data_train_cv_10, method = "qda")
+
+        #lasso
+        food_data_test_cv_10 = as.data.frame(food_data_test_cv_10)
+        food_data_test_cv_10$Confirmed_lasso_predict <- as.matrix(cbind(1,food_data_test_cv_10[,c(1:21)])) %*% coef(lasso_fit, s = "lambda.min")
+        result_lasso[[f]] = mean((food_data_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_lasso_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_lasso_predict)
+        #ridge
+        food_data_test_cv_10$Confirmed_ridge_predict <- as.matrix(cbind(1,food_data_test_cv_10[,c(1:21)])) %*% coef(ridge_fit, s = "lambda.min")
+        result_ridge[[f]] = mean((kcal_test_cv_10$Confirmed_per_capita - food_data_test_cv_10$Confirmed_ridge_predict)^2, na.rm=TRUE)
+        food_data_test_cv_10 <- food_data_test_cv_10 %>%
+          select(-Confirmed_ridge_predict)
+          
+data.frame_lasso = data.frame("CV_error" = mean(unlist(result_lasso)), "CV_error_SE" = sd(unlist(result_lasso)))
+data.frame_ridge = data.frame("CV_error" = mean(unlist(result_ridge)), "CV_error_SE" = sd(unlist(result_ridge)))

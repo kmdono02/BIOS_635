@@ -1,0 +1,106 @@
+---
+title: "Table 1"
+author: "Tian Wang"
+date: "5/1/2021"
+output:
+  html_document:
+    code_folding: hide
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(tableone)
+library(stringr)
+library(quanteda)
+library(labelled)
+library(epitools)
+library(gtsummary)
+library(flextable)
+```
+
+# Table 1
+
+```{r}
+suppressWarnings(load("./Inputs/v_t2.Rdata"))
+
+
+v_t2 <- v_t2 %>%   mutate(
+  age_group2 =  if_else (AGE_YRS <  65, 2, 
+                         if_else (AGE_YRS < 75, 3,
+                                  if_else (AGE_YRS < 85, 4, 5  )))
+) %>%
+  mutate(agegroup_f2  = structure(
+    factor(age_group2, levels=c(2, 3, 4, 5), labels=c("18-64", "65-74", "75-84", "85+")),
+    label= "older Age group in Years"
+  ))  %>% 
+  mutate(COVID19Vtype = structure(
+    if_else(drug1_f=="COVID19 vaccine" & VAX_MANU == "MODERNA" , 1, 
+            if_else(drug1_f=="COVID19 vaccine" & VAX_MANU == "PFIZER\\BIONTECH",
+                    2, 3)), label="COVID-19 vaccine type" 
+  )) %>%
+  mutate(COVID19Vtype_f  = structure(
+    factor(COVID19Vtype, levels=c(1, 2, 3), 
+           labels=c("MODERNA", "PFIZER\\BIONTECH", "JANSSEN")),
+    label= "COVID19 vaccine type"
+  )) %>%
+  expss::apply_labels(
+    AGE_YRS = "Age (yrs)", VAX_TYPE = "Vaccine type", 
+    AnaphylacticR = "Anaphylactic reaction", ER_VISIT = "Emergency room or doctor visit",
+    SeriousEvent = "Composite endpoint: serious event", DIED = "Died",
+    L_THREAT = "Life-threatening illness",HOSPITAL = "Hospitalized",
+    X_STAY = "Prolongation of existing hospitalization",
+    DISABLE = "Disability", HOSPDAYS = "Number of days hospitalized"
+  ) 
+# labelled::var_label(v_t2)
+
+
+
+v_t2[v_t2==""] <- "N"
+
+
+
+vars_cont <- c("AGE_YRS")
+vars_cat <- c(
+  "agegroup_f2", "SEX_f", "COVID19Vtype_f", "PriorAllergy", "PriorVaxAE", 
+  "covid_b4V", "NUMDAYS_2_f", "AnaphylacticR", "Anaphylaxis_PAllergy", 
+  "ER_VISIT", "RECOVD_f", "SeriousEvent", "DIED", "L_THREAT", "HOSPITAL", 
+  "X_STAY", "DISABLE", "HOSPDAYS", "Birthdefect", "cur_htn", "cur_dm", 
+  "cur_copd", "cur_cancer", "cur_MI", "cur_stroke", "cur_hf" 
+)
+vars <- c(vars_cont, vars_cat)
+
+
+labs <- list(
+  cur_htn ~ "Prevalent HTN", 
+  cur_dm ~ "Prevalent diabetes", 
+  cur_copd ~ "Prevalent COPD", 
+  cur_cancer ~ "Prevalent cancer", 
+  cur_hf ~ "Prevalent heart failure", 
+  cur_MI ~ "History of MI", 
+  cur_stroke ~ "History of stroke"
+)
+
+
+tbl_summary(data=v_t2[c("VAERS_ID", "drug1_f", vars )], 
+            by=agegroup_f2, label=labs,
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n}  ({p}%)"),
+            include=vars) %>% 
+  add_n() %>%
+  add_p() %>%
+  modify_header(label = "Variable") %>%
+  bold_labels()
+```
+
+
+
+
+
+

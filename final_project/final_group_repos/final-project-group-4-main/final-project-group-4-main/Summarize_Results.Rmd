@@ -1,0 +1,448 @@
+---
+title: "Summarize Results"
+author: "Chris Moore"
+date: "5/1/2021"
+output:
+  html_document:
+    code_folding: hide
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 5, message=FALSE) 
+```
+<br/><br/>
+***NOTE: Click 'Code' on the right to expand code sections.***    
+<br/><br/>
+
+Packages   
+
+```{r packages, results='hold', message=FALSE}
+library(tidyverse)
+library(data.table) 
+library(gtsummary)
+library(caret)
+library(glmnet)
+library(splines)
+library(flextable)
+```
+<br/>   
+
+
+Custom functions for formatting    
+
+```{r custom_functions}
+fmt_meanse <- function(x, dig=3, fmt = "f", flg="#") {
+  paste0(formatC(mean(x), digits=dig, format = fmt, flag=flg),          # mean
+         " (", formatC(sd(x), digits=dig, format = fmt, flag=flg), ")") #(SE)
+}
+
+factr_lvls <- function(dat) {
+  dat %>% mutate(
+    Method = factor(mod, levels=c("lso", "lso.sp", "rf"),
+                    labels=c("LASSO", "LASSO (sp)", "Random Forest")),
+    Event = factor(obs, levels=c("1", "0"), labels=c("Yes", "No")),
+    stat = factor(obs, levels=c("1", "0"), labels=c("Sensitivity", "Specificity"))
+  ) %>% select(Method, Event, stat, everything(), mod, obs)
+}
+
+lab_lso.sp <- as_paragraph("LASSO", as_sub("sp"))             # For flextables 
+lab_plt <- c("LASSO", bquote("LASSO"["sp"]), "Random Forest") # For plots
+```
+
+<br/>  
+
+
+Variable labels    
+```{r variable_labels}
+vrbls <- rbind(AGE_YRS = "Age (years)",
+               SEX = "Sex",
+               VAX_DOSE_SERIES = "Second vaccine dose",
+               VAX_MANU = "Vaccine manufacturer",
+               PriorAllergy = "Prior allergy", 
+               PriorVaxAE = "Prior vaccine adverse event", 
+               cur_htn = "Prevalent HTN", 
+               cur_dm = "Prevalent diabetes", 
+               cur_copd = "Prevalent COPD", 
+               cur_cancer = "Prevalent cancer", 
+               cur_hf = "Prevalent heart failure", 
+               cur_MI = "History of MI", 
+               cur_ckd = "Prevalent CKD", 
+               cur_dialysis = "On dialysis", 
+               cur_stroke = "History of stroke") %>% 
+  as.data.frame() %>% rownames_to_column("v") %>% rename(lab = V1)
+```
+
+**********************    
+<br/> <br/>  
+
+
+
+## Import data and summarize performance
+
+```{r import}
+load("./Outputs/kfold_output/kfold_output_RF.RData")
+load("./Outputs/kfold_output/kfold_output_LogLasso.RData")
+load("./Outputs/kfold_output/kfold_output_LogLasso_se0.8sp1.2.RData")
+```
+
+
+Separate components of `kfold_cv()` custom function
+
+```{r kfold_components}
+m_rf <- rf_results$mod_train
+p_rf <- rf_results$preds_test
+e_rf <- rf_results$perf_test
+
+m_lso <- loglso_results$mod_train
+p_lso <- loglso_results$preds_test
+e_lso <- loglso_results$perf_test
+
+m_lso.sp <- loglso_results_wtd$mod_train
+p_lso.sp <- loglso_results_wtd$preds_test
+e_lso.sp <- loglso_results_wtd$perf_test
+```
+
+
+Combine fold-specific errors and summarize performance by class (sensitivity and specificity)
+
+```{r get_classerr}
+e_all <- rbindlist(list(lso=e_lso, lso.sp=e_lso.sp, rf=e_rf), idcol = "mod") %>% 
+  factr_lvls()
+  
+sens_spec <- e_all %>% 
+  group_by(mod, obs) %>% 
+  summarise_at(vars(p_corr=Accuracy, p_incor=Error), 
+               list(mn = ~mean(.), se = ~sd(.),
+                    mnse = ~fmt_meanse(.),
+                    p_mnse = ~fmt_meanse(.*100, dig=1))) %>%
+  ungroup() %>% 
+  factr_lvls() 
+```
+
+
+Use predictions to also get 2x2 table cell counts
+
+```{r get_counts}
+cell_cnts <- rbindlist(list(lso = p_lso[, .(f, obs, pred, correct)],
+                            lso.sp = p_lso.sp[, .(f, obs, pred, correct)],
+                            rf = p_rf), idcol = "mod") %>% 
+  .[, .(.N, n_corr=sum(correct), n_incor = .N-sum(correct)), 
+    by=c("mod","obs")]
+```
+
+
+Use predictions to get overall accuracy  
+
+```{r get_acc}
+ovral_acc <- rbindlist(list(lso = p_lso[, .(f, obs, pred, correct)], 
+                            lso.sp = p_lso.sp[, .(f, obs, pred, correct)],
+                            rf = p_rf), idcol = "mod") %>% 
+  .[, .(acc=sum(correct)/.N), by=c("mod", "f")] %>% 
+  group_by(mod) %>% 
+  summarise(ovrl_acc = mean(acc), se_ovrlacc = sd(acc), 
+            Accuracy = fmt_meanse(acc), p_Accuracy = fmt_meanse(acc*100, dig=1))
+```
+
+
+Combine performance summaries 
+
+```{r perf_summary}
+summ_perf <- sens_spec %>% 
+  left_join(cell_cnts, by=c("mod", "obs")) %>% 
+  left_join(ovral_acc, by=c("mod"))
+```
+
+**************************************
+<br/>  <br/>  
+
+
+
+## Tables
+
+**Table 2:** Sensitivity, specificity, and accuracy   
+
+```{r tab_2}
+tab2 <- summ_perf %>% 
+  select(Method, stat, p_corr_mnse, Accuracy) %>% 
+  pivot_wider(names_from = "stat", values_from = "p_corr_mnse")
+
+(tab2_flx <- flextable(tab2) %>% autofit() %>% 
+    compose(i=2, j=1, value=lab_lso.sp))
+```
+
+<br/>  <br/>  
+
+
+
+**Table 3:** Sensitivity, specificity, and accuracy   
+
+```{r tab_3}
+tab3 <- summ_perf %>% 
+  select(Method, Event, N, 
+         "N Correct"=n_corr, 
+         "N Incorrect"=n_incor, 
+         "% Correct (SE)" = p_corr_p_mnse,
+         "% Overall accuracy (SE)"= p_Accuracy) 
+
+(tab3_flx <- flextable(tab3) %>% autofit() %>% 
+    compose(i=3:4, j=1, value=lab_lso.sp) %>% 
+    align_text_col(align = "right", header = TRUE, footer = TRUE) %>% 
+    merge_v(j=7) %>% fix_border_issues(part = "all"))
+```
+
+<br/>  <br/>  
+
+
+
+**Table 4:** Average and fold-specific variable importance in the random forest  
+
+```{r tab_4}
+# Get values in wide format ##$
+var_imprt <- lapply(m_rf, function(x) {
+  rownames_to_column(varImp(x)[["importance"]],"vrbl")
+}) %>% 
+  rbindlist(idcol="fold") 
+
+tab4 <- var_imprt %>% 
+  pivot_wider(names_from = "fold", values_from = "Overall") %>% 
+  mutate(vrbl2 = case_when( grepl("SEX", vrbl) ~ "SEX",
+                            grepl("VAX_DOSE", vrbl) ~ "VAX_DOSE_SERIES",
+                            grepl("VAX_MANU", vrbl) ~ "VAX_MANU",
+                            TRUE ~ gsub("1", "", vrbl)),
+         vrbl2 = factor(vrbl2, levels=vrbls$v, label=vrbls$lab)) %>%
+  group_by(Predictor = vrbl2) %>% 
+  summarise_if(is.numeric, sum) %>% ungroup() %>% ungroup() %>% 
+  rowwise() %>% 
+  mutate(`Mean (SE)` = fmt_meanse(c_across(fold1:fold5), dig=2),
+         avg = mean(c_across(fold1:fold5))) %>%
+  rename_with(~ gsub("fold", "Fold ", .)) %>% 
+  arrange(-avg) %>% select(Predictor, `Mean (SE)`, everything())
+
+(tab4_flx <- flextable(select(tab4, -avg)) %>% 
+  autofit())
+```
+
+<br/>  <br/>  
+
+
+
+
+************************
+<br/>  <br/>  
+
+## Figures 
+
+
+**Figure 1:** Mean (standard error) LASSO and random forest predictive performance during five-fold cross-validation  
+
+```{r, fig.height=5, fig.width=7}
+fig1 <- summ_perf %>% 
+  select(Method, stat, mn=p_corr_mn, se=p_corr_se, 
+         mn_Accuracy=ovrl_acc, se_Accuracy=se_ovrlacc) %>% 
+  pivot_wider(names_from = "stat", values_from = c("mn", "se")) %>% 
+  pivot_longer(cols=-Method) %>% 
+  separate(name, into=c("mnse", "stat"), sep="_") %>% 
+  pivot_wider(names_from = "mnse") %>% 
+  ggplot(aes(x=stat, y=mn, color=Method)) +
+  geom_point(size=3) +
+  geom_errorbar(aes(ymin=mn-se, ymax=mn+se), size=1, width=0.2) +
+  scale_y_continuous("Mean (SE)", limits=c(0, 1), breaks=seq(0, 0.8, 0.2), expand=c(0,0)) +
+  xlab(NULL) +
+  scale_color_brewer(palette = "Set1", labels=lab_plt) +
+  theme_bw(base_size = 15, base_line_size=0.3)
+fig1
+```
+
+<br/>  <br/>  
+
+
+
+**Figure 2:**  LASSO predicted probabilities by observed event status. Dashed line represents average threshold selected for predicting an event from ROC analyses
+
+```{r, fig.width = 10, fig.height = 6}
+## Re-create fold data ##$##$
+source("./R/setup_data.R")
+set.seed(12) # same seed as used before
+folds <- createFolds(y=unlist(dat[, event_asnum]), k=5)
+
+d_fold <- lapply(folds, function(f) {
+  dat[f]
+}) %>% rbindlist(idcol="fold")
+
+## Combine with predictions ##$##$
+preds <- cbind(d_fold, p_lso)
+preds[, Event := factor(obs, levels=c("0", "1"), labels=c("No", "Yes"))]
+# Check that data lines up (observerd outcomes should match)
+# sum(preds$SeriousEvent != preds$obs)
+##$##$##$##$##$##$
+
+
+
+# Average prob threshold from ROC ##$##$
+p_thresh = data.frame(
+  Analysis = c("LASSO", "LASSO (sp)"),
+  Threshold = c(mean(sapply(m_lso, `[[`, "p_thresh")), mean(sapply(m_lso.sp, `[[`, "p_thresh")))
+)
+##$##$##$##$##$##$
+
+
+
+## Plot prob densities by event ##$##$
+p1 <- ggplot(preds, aes(x=pred_raw)) +
+  geom_density(aes(y=..scaled.., fill=Event, group=Event), alpha=0.3) +
+  geom_vline(data=p_thresh, aes(xintercept=Threshold, color=Analysis), 
+             size=0.72, linetype="dashed") +
+  scale_y_continuous("Density", limits = c(0, 1.1),
+                     breaks = seq(0, 1, 0.2), expand=c(0,0)) +
+  scale_x_continuous("Predicted probability of event", limits = c(0, 1.1),
+                     breaks = seq(0, 1, 0.2), expand=c(0,0)) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_manual(values=c("darkgreen", "purple"), labels=lab_plt[1:2]) +
+  
+  guides(linetype = guide_legend(override.aes = list(size = 0.9))) +
+  theme_bw(base_size = 16, base_line_size=0) +
+  theme(legend.box.margin = margin(t=-5, b=-7),
+        legend.key.height = unit(1.5, "line"),
+        legend.title = element_text(face="bold"))
+
+## Plot probs vs age by event ##$##$
+p2 <- ggplot(preds[AGE_YRS<quantile(AGE_YRS,0.99)], # Trim at 99th percentile
+             aes(y=pred_raw, x=AGE_YRS, color=Event)) +
+  geom_point(alpha=0.13, size=0.6) +
+  geom_hline(data=p_thresh, aes(yintercept=Threshold, color=Analysis), size=0.76, linetype="dashed") +
+  facet_wrap(.~Event, ncol=1) +
+  scale_x_continuous("Age (years)", limits = c(17, 92),
+                     breaks = seq(20, 90, 20), expand=c(0,0)) +
+  scale_y_continuous("Predicted probability of event", limits = c(0, 1.1),
+                     breaks = seq(0, 1, 0.25), expand=c(0,0)) +
+  scale_color_manual(values=c("darkgreen", "purple", "red", "blue")) +
+  # scale_color_brewer(palette = "Set1") +
+  scale_linetype_manual(values=c("dashed", "twodash")) +
+  theme_bw(base_size = 16, base_line_size=0.3) +
+  theme(strip.text = element_blank(),
+        strip.background = element_blank())
+##$##$##$##$##$##$
+
+
+
+## Combine ##$##$
+fig2 <- ggpubr::ggarrange(p1, p2, ncol=2, common.legend = TRUE)
+fig2
+```
+<br/>  <br/>  
+
+
+
+**Figure 3** Random forest number of predictors selected for each node versus out-of-bag error   
+
+```{r fig.width = 10, fig.height = 6}
+npreds_rf <-  lapply(m_rf, `[[`, "results") %>% 
+  rbindlist(idcol="Fold") %>%
+  mutate(Fold = gsub("fold", "", Fold))
+
+fig3 <- npreds_rf %>% 
+  mutate(se=NA, categ="By fold") %>% 
+  rbind(npreds_rf %>% 
+          group_by(mtry) %>% 
+          summarise(categ = "Mean (SE)", Fold="Mean", se = sd(Accuracy), 
+                    Accuracy = mean(Accuracy), Kappa = mean(Kappa))) %>% 
+  ggplot(aes(x=mtry, y=Accuracy, color=Fold)) +
+  geom_point(size=3) +
+  geom_line(size=1) +
+  geom_errorbar(aes(ymin=Accuracy-se, ymax=Accuracy+se), size=1, width=0.5) +
+  facet_grid(. ~ categ) +
+  scale_y_continuous("OOB Accuracy", limits = c(0.85, 0.90), 
+                     breaks = seq(0.85, 0.9, 0.01), expand=c(0,0)) +
+  scale_x_continuous("Number of predictors", limits = c(3, 17),
+                     breaks = seq(4, 16, 2), expand=c(0,0)) +
+  scale_color_manual(values=c("red", "blue", "green", "purple", "orange", "black")) +
+  theme_bw(base_size = 16, base_line_size=0.3)
+fig3
+```
+
+<br/>  <br/>  
+
+
+
+**Figure 4:** Random forest variable importance averaged over folds   
+
+```{r}
+fig4 <- ggplot(tab4, aes(x = Predictor, y=avg)) +
+  geom_bar(stat="identity") +
+  scale_y_continuous("Average variable importance", limits = c(0, 101),
+                     breaks = seq(0, 100, 20), expand=c(0,0)) +
+  scale_x_discrete(limits=rev) +
+  scale_color_brewer(palette = "Set1") +
+  coord_flip() +
+  theme_bw(base_size = 14, base_line_size=0.3)
+fig4
+```
+
+**************************************
+<br/>  <br/>  
+
+
+
+## Save
+```{r, eval=FALSE}
+fpath <- "./Outputs/Final_Results/"
+
+# Tables ##$
+tbls <- paste0("tab", 2:4)
+walk(paste0(tbls, "_flx"), ~ save_as_docx(get(.x), path=paste0(fpath, .x, ".docx")))
+walk(tbls, ~ fwrite(get(.x), paste0(fpath, .x, ".csv")))
+
+# Figures ##$
+figs <- paste0("fig", 1:4)# ht x width      ht x width
+fig_params <- list(fig1 = c(NA,NA), fig2 = c(10, 6),
+                   fig3 = c(10, 6), fig4 = c(10.5,6))
+walk(figs, ~ ggsave(
+  plot=get(.x), filename=paste0(fpath, .x, ".jpeg"), units="in",
+  width = fig_params[[.x]][[1]], height = fig_params[[.x]][[2]]
+  ) )
+```
+
+**************************************
+<br/>  <br/>  
+
+
+
+## Appendix
+
+These additional results about the final models are only for reference and are not formatted for presentation
+
+#### LASSO models
+```{r lasso_coeff}
+lasso_coef <- lapply(m_lso, function(x) {
+  tmp <- coef(x, s = "lambda.min")
+  data.frame(name = tmp@Dimnames[[1]][tmp@i + 1], 
+             coefficient = tmp@x)
+} )
+
+
+lasso_models <- data.frame(
+  f = names(m_lso),
+  lambda = sapply(m_lso, `[[`, "lambda.min"),
+  n_terms = c(sapply(lasso_coef, nrow)),
+  age_frmla = as.character(sapply(m_lso, `[[`, "cust_tune")),
+  p_thresh = sapply(m_lso, `[[`, "p_thresh"),
+  p_thresh.sp =  sapply(m_lso.sp, `[[`, "p_thresh"),
+  row.names = NULL
+) %>% mutate(age_frmla = gsub(")\\^2", "", gsub(".*\\+", "", age_frmla)))
+
+lasso_models
+```
+<br/>  
+
+#### Random forest tune parameters
+
+```{r}
+rf_tuneparams <- lapply(m_rf, function(x) {
+  data.frame(n_tree = x[["finalModel"]][["ntree"]],
+             n_vrbls = x[["finalModel"]][["mtry"]])
+}) %>% rbindlist(idcol="fold")
+
+rf_tuneparams
+```

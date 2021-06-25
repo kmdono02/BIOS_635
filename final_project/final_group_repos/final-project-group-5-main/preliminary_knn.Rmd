@@ -1,0 +1,79 @@
+---
+title: "Preliminary Analysis"
+author: "Brian Chen"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(GGally)
+library(caret)
+```
+
+## Read in data
+
+```{r data}
+heart_data <- read_csv("data/heart.csv") %>%
+  mutate(sex = as.factor(sex),
+         cp = as.factor(cp),
+         fbs = as.factor(fbs),
+         restecg = as.factor(restecg),
+         exang = as.factor(exang),
+         thal = as.factor(thal),
+         target = as.factor(target)) %>%
+  drop_na()
+```
+
+## Table Summary
+
+```{r tbl_summary}
+heart_data %>% 
+  tbl_summary(by = target,
+              statistic = list(all_continuous() ~ "{mean} ({sd})",all_categorical()~"{n} / {N} ({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table()%>%
+  bold(i = 1, part = 'header')
+
+```
+
+## Correlation Plot of continuous variables
+
+```{r corr, fig.width = 12, fig.height = 8}
+ggpairs(heart_data, 
+        columns = c("age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"),
+        ggplot2::aes(color = target))
+```
+
+## Knn
+```{r }
+
+individualfolds<- createFolds(y=heart_data$target, k=5)
+per_accuracy <- list()
+for(i in 1:length(individualfolds)){
+  heart_train <- heart_data[-individualfolds[[i]],]
+  heart_test <- heart_data[individualfolds[[i]],]
+    
+  KNNfit<-train(target ~., data = heart_train, method = "knn",
+                  preProcess = c("center","scale"),
+                  tuneLength = 10)
+    
+  heart_test$pred_target <- predict(KNNfit, newdata=heart_test,type="raw")
+  confusion_matrix <-confusionMatrix(data = heart_test$pred_target,
+                reference = heart_test$target, 
+                positive = "1")
+  per_accuracy[[i]] <- confusion_matrix$overall[1]
+}
+
+cv_error <- as.data.frame(1-do.call("rbind", per_accuracy) %>%
+    apply(MARGIN=2, FUN=mean, na.rm=TRUE))
+rownames(cv_error) <- NULL
+cv_error
+
+
+```

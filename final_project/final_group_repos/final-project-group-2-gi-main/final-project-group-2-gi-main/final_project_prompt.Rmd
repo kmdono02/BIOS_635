@@ -1,0 +1,677 @@
+---
+title: "Final Project"
+author: "BIOS 635"
+date: "4/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+```{r libs}
+library(tidyverse)
+library(haven)
+library(magrittr)
+library(caret)
+library(pROC)
+library(e1071)
+library(mice)
+library(doParallel)
+library(tictoc)
+library(furrr)
+library(beepr)
+library(plotrix)
+library(gtsummary)
+library(flextable)
+library(OptimalCutpoints)
+library(DMwR)
+```
+
+# Import
+```{r import}
+datasets <- c("colpolyp_pathology", "colpolyp", "colpolypcluster", "proc_main", "pe", "patient",
+              "coltumor", "history", "colind", "colstricture", "colrectalulcer", "colproc",
+              "colpriorsurg", "colnormal", "colmucosalabnl", "colmelanosis", "colhemorrhoid",
+              "colfissurefistula", "colfindother", "coldivertic", "colavm", "colanatdeform",
+              "colindadenopolyp")
+
+ds_function <- function(ds_name) {
+  path <- paste0("S:/Galanko/CORI/Full CORI/CORI_V3/Data/CORI_V4/", ds_name, ".sas7bdat")
+  ds <- read_sas(path)
+  assign(ds_name, ds, envir = .GlobalEnv)
+}
+
+map(datasets, ds_function) # Import all the datasets in the list
+
+```
+
+# Link and subset
+```{r link}
+# include only patients with one or more rectal polyps
+rectal_polyps <- filter(colpolyp, location %in% c("Rectum", "Sigmoid colon") & 
+                          (diminutive == 1 | (size >= 0 & size <= 5)))
+
+nrow(colpolyp)
+nrow(rectal_polyps)
+
+# clean linking IDs
+max(table(colpolyp$finding_uid))
+max(table(colpolyp_pathology$finding_uid))
+
+clean_colpolyp_pathology <- colpolyp_pathology %>%
+  filter(str_length(finding_uid) == 36 &
+           str_count(finding_uid, "-") == 4) %>% #some finding_uids don't follow the correct format, removed them
+  filter(is.na(result) == F & result != "") %>%
+  select(!c(procedure_uid))
+
+max(table(clean_colpolyp_pathology$finding_uid))
+
+# only included complete colons
+complete_rectal_polyps <- inner_join(rectal_polyps, select(colproc, !finding_uid), by = "procedure_uid") %>%
+  filter(depthReach %in% c("Ileum", "Terminal ileum", "Cecum"))
+
+# exclude frank masses
+no_masses <- anti_join(complete_rectal_polyps, coltumor, by = "procedure_uid")
+
+# limit to screening indications
+screening_colons <- left_join(no_masses, select(colind, !finding_uid), by = "procedure_uid") %>%
+  filter(screenAvgRisk == 1 | caSurvAdenoPolyp == 1 | caSurvOtherPolyp == 1)
+
+# include only rectal polyps with pathology
+rectal_polyps_with_path <- inner_join(screening_colons, clean_colpolyp_pathology, by = "finding_uid")
+
+# exclude any patients from colpolyp that are also in colopolypcluster
+non_clustered_rpwp <- anti_join(rectal_polyps_with_path, colpolypcluster, by = "procedure_uid")
+nrow(rectal_polyps_with_path)
+nrow(non_clustered_rpwp)
+nrow(non_clustered_rpwp) / nrow(rectal_polyps_with_path)
+
+# pick up a number of data spread across datasets
+include_proc_main <- left_join(rectal_polyps_with_path, proc_main, by = "procedure_uid")
+include_pe <- left_join(include_proc_main, select(pe, !finding_uid), by = "procedure_uid")
+include_patient <- left_join(include_pe, select(patient, !procedure_uid), by = "patient_uid")
+include_history <- left_join(include_patient, history, by = "procedure_uid")
+
+# clean up before assessing coexisting findings
+clean_mr_per_pt <- include_history %>%
+  select(c(patient_uid, procedure_uid, proc_year, attachment, location, size, result, modifier, age, gender,
+           isBlack, isWhite, isOther, isNativeAmerican, isAsian, isHawaian, isHispanic, bmiClass, smoking, alcohol)) %>%
+  group_by(patient_uid)
+
+clean_path <- clean_mr_per_pt %>%
+  group_by(patient_uid) %>%
+  mutate(first_procedure_uid = first(procedure_uid)) %>%
+  filter(first_procedure_uid == procedure_uid) %>%
+  mutate(totalpath = paste0(result, modifier),
+         is_adenoma = if_else(str_detect(tolower(totalpath), "adenom") | str_detect(tolower(totalpath), "adenocar") |
+                                str_detect(tolower(totalpath), "serr") | str_detect(tolower(totalpath), "Adenoma_sessile"), 1, 0)) %>%
+  group_by(procedure_uid) %>%
+  summarise(any_adenoma = max(is_adenoma),
+            across(8:20, first)) %>%
+  mutate(f_any_adenoma = factor(any_adenoma, c(1, 0), c("Adenoma", "Nonadenoma"))) %>%
+  select(!first_procedure_uid)
+
+```
+
+# Make variables from summarized polyps
+```{r polyps}
+location_summaries <- colpolyp %>%
+  filter(!(location %in% c("", "Anus", "Ileum", "Terminal ileum"))) %>%
+  mutate(location = factor(location)) %>%
+  group_by(procedure_uid, location, .drop = F) %>%
+  summarise(number = n(),
+            max_size = max(c(size, -999), na.rm = T),
+            min_size = min(c(size, 999), na.rm = T),
+            mean_size = max(mean(size, na.rm = T), 0, na.rm = T),
+            .groups = "keep") %>%
+  mutate(any = if_else(number > 1, 1, 0),
+         max_size = if_else(max_size == -999, 0, max_size),
+         min_size = if_else(min_size == 999, 0, min_size),
+         location = str_replace(location, " ", "_")) %>%
+  pivot_wider(id_cols = "procedure_uid", values_from = c("number", "max_size", "min_size", "mean_size", "any"), names_from = "location")
+
+attachment_summaries <- colpolyp %>%
+  filter(!(attachment %in% c(""))) %>%
+  mutate(attachment = if_else(attachment %in% c("flat with depressed area", "flat without depressed area"), "flat", attachment),
+         attachment = factor(attachment)) %>%
+  group_by(procedure_uid, attachment, .drop = F) %>%
+  summarise(number = n(),
+            max_size = max(c(size, -999), na.rm = T),
+            min_size = min(c(size, 999), na.rm = T),
+            mean_size = max(mean(size, na.rm = T), 0, na.rm = T),
+            .groups = "keep") %>%
+  mutate(any = if_else(number > 1, 1, 0),
+         max_size = if_else(max_size == -999, 0, max_size),
+         min_size = if_else(min_size == 999, 0, min_size),
+         attachment = str_replace_all(attachment, " ", "_")) %>%
+  pivot_wider(id_cols = "procedure_uid", values_from = c("number", "max_size", "min_size", "mean_size", "any"), names_from = "attachment")
+```
+
+# Make variables from summarized diverticulae
+```{r tics}
+joined_divertic<-left_join(clean_path, coldivertic, by = "procedure_uid") %>%
+  select(procedure_uid, startLoc_avail, endLoc, startLoc, -diverticulitis, -degree_avail, degree) %>%
+  rename(diverticulosis=startLoc_avail) %>%
+  filter(endLoc != "Splenic flexure" | is.na(endLoc) == T)
+
+joined_divertic$diverticulosis[is.na(joined_divertic$diverticulosis)] = 0
+joined_divertic$endLoc[is.na(joined_divertic$endLoc)] = 0
+joined_divertic$startLoc[is.na(joined_divertic$startLoc)] = 0
+joined_divertic$degree[is.na(joined_divertic$degree)] = 0
+
+joined_divertic$startLoc<-factor(joined_divertic$startLoc)
+joined_divertic$endLoc<-factor(joined_divertic$endLoc)
+joined_divertic$degree<-factor(joined_divertic$degree)
+
+table(joined_divertic$startLoc)
+table(joined_divertic$endLoc)
+```
+
+# Make variables from summarized hemorrhoids
+```{r roids}
+joined_hem<-left_join(clean_path, colhemorrhoid, by = "procedure_uid") %>%
+  select(procedure_uid,classification,size,type)
+
+joined_hem$classification[is.na(joined_hem$classification)] = 0
+joined_hem$size[is.na(joined_hem$size)] = 0
+joined_hem$type[is.na(joined_hem$type)] = 0
+
+joined_hem$classification<-factor(joined_hem$classification)
+joined_hem$size<-factor(joined_hem$size)
+joined_hem$type<-factor(joined_hem$type)
+```
+
+# Join indications
+```{r}
+
+joined_indication<-left_join(clean_path, colind, by = "procedure_uid") 
+
+
+
+joined_indication_years<-left_join(joined_indication, proc_main, by = "procedure_uid") %>%
+  select(procedure_uid,avgRiskPrior,avgRiskNoPrior,avgRiskPriorYear,caSurvAdenoPolyp,caSurvLastExam,proc_year)
+
+joined_indication_years$avgRiskPriorYear<-as.numeric(joined_indication_years$avgRiskPriorYear)
+joined_indication_years$caSurvLastExam<-as.numeric(joined_indication_years$caSurvLastExam)
+
+
+joined_indication_years$year_last_exam<-paste(joined_indication_years$avgRiskPriorYear,joined_indication_years$caSurvLastExam) 
+
+joined_indication_years$year_last_exam<-gsub("NA", "", joined_indication_years$year_last_exam)
+
+joined_indication_years$year_last_exam<-as.numeric(joined_indication_years$year_last_exam)
+
+                                                   
+joined_indication_years$avgRiskPrior[is.na(joined_indication_years$avgRiskPrior)] = 0
+joined_indication_years$avgRiskNoPrior[is.na(joined_indication_years$avgRiskNoPrior)] = 0
+joined_indication_years$caSurvAdenoPolyp[is.na(joined_indication_years$caSurvAdenoPolyp)] = 0                                                 
+                                                                                               
+joined_indication_years_clean<-joined_indication_years %>%
+mutate(years_since_exam=proc_year-year_last_exam ) %>%
+  select(- avgRiskPriorYear,-caSurvLastExam,-proc_year,-year_last_exam)
+
+```
+
+# Join summary datasets
+```{r rejoin}
+final_cleaned <- left_join(clean_path, location_summaries, by = "procedure_uid") %>%
+  left_join(attachment_summaries, by = "procedure_uid") %>%
+  left_join(joined_divertic, by = "procedure_uid") %>%
+  left_join(joined_hem, by = "procedure_uid") %>%
+   left_join(joined_indication_years_clean, by = "procedure_uid") %>%
+  mutate(across(44:64, ~ if_else(is.na(.), 0, as.numeric(.)))) %>%
+  mutate(across(where(~ is_character(.) | is.factor(.)), ~ if_else(. == " " | . == "", NA_character_, as.character(.)))) %>%
+  mutate(across(where(is_character), factor))
+
+```
+
+# Make the 60:40 split
+```{r split}
+set.seed(12)
+training <- sample_frac(final_cleaned, 0.6, replace = F) %>%
+  select(-any_adenoma)
+
+testing <- anti_join(final_cleaned, training, by = "procedure_uid")
+
+clean_training <- training %>%
+  select(-procedure_uid)
+```
+
+# Multiple imputation
+```{r mice}
+n_imputations <- 5
+
+missings <- map_dbl(clean_training, ~ sum(is.na(.))) 
+
+unlist(missings[missings > 0])
+
+imputed_training <- mice(data = clean_training, m = n_imputations, pred=quickpred(clean_training, mincor = 0.3), seed = 13)
+```
+
+# Train Models
+```{r modelstrain}
+train_models <- function(imp_num, model_type, smote_num) {
+  training <- complete(imputed_training, imp_num)
+  if (smote_num == 0) {
+    model <- train(`f_any_adenoma` ~ ., data = training, method = model_type, preProcess = c("center", "scale"),
+                   trControl = trainControl(method = "repeatedcv", number = cv_fold_number, repeats = cv_repeats,
+                                            savePredictions = "final", classProbs = T, 
+                                            summaryFunction = twoClassSummary), metric = "Sens")
+  } else {
+    model <- train(`f_any_adenoma` ~ ., data = training, method = model_type, preProcess = c("center", "scale"),
+                   trControl = trainControl(method = "repeatedcv", number = cv_fold_number, repeats = cv_repeats,
+                                            savePredictions = "final", classProbs = T, 
+                                            summaryFunction = twoClassSummary, sampling = "smote"), metric = "Sens")
+  }
+print(paste(imp_num, model_type, smote_num))
+return(model)
+}
+
+train_list <- function(models, imp_num, smote_num) {
+  r <- map(models, ~ train_models(imp_num, ., smote_num))
+  names(r) <- models
+  return(r)
+}
+
+cv_repeats <- 5
+cv_fold_number <- 5
+
+cl <- makePSOCKcluster(15)
+registerDoParallel(cl)
+tic()
+model_frame <- expand_grid(imputation_num = 1:n_imputations, smote_percent = 0:1) %>%
+  mutate(models = list(c("knn", "glmnet", "rf", "naive_bayes"))) %>%
+  mutate(fitted = pmap(list(models, imputation_num, smote_percent), train_list))
+toc()
+stopCluster(cl)
+```
+
+# Pull Results
+```{r result_table}
+prev = 0.2
+
+Resultfxn <- function(outputmodel) {
+  predicted <- outputmodel$pred$pred
+  predicted_p <- outputmodel$pred$Adenoma
+  observed <- outputmodel$pred$obs
+
+  confusionmatrix <- confusionMatrix(predicted, observed, positive = "Adenoma")
+  roc_train <- pROC::roc(observed, predicted_p, levels = c("Adenoma", "Nonadenoma"), direction = ">")
+
+  cp <- optimal.cutpoints.default(X = "pred", status = "true", tag.healthy = "0",
+                                  control = control.cutpoints(CFP = 1, CFN = 5, weighted.Kappa = T),
+                                  methods = "MaxKappa", data = data.frame(pred = as.numeric(outputmodel$pred$Adenoma), 
+                                                                          true = if_else(outputmodel$pred$obs == "Adenoma", 1, 0)))
+  
+  all_results <- as_tibble(t(confusionmatrix$byClass)) %>%
+    mutate(AUC = auc(roc_train)[[1]],
+           Cutpoint = cp$MaxKappa$Global$optimal.cutoff$cutoff,
+           CutSens = cp$MaxKappa$Global$optimal.cutoff$Se[[1]],
+           CutSpec = cp$MaxKappa$Global$optimal.cutoff$Sp[[1]],
+           CutPPV = cp$MaxKappa$Global$optimal.cutoff$PPV[[1]],
+           CutNPV = cp$MaxKappa$Global$optimal.cutoff$NPV[[1]],
+           AdjCutPPV = (CutSens * prev) / ((CutSens * prev) + ((1-CutSpec) * (1 - prev))),
+           AdjCutNPV = (CutSpec * (1 - prev)) / (((1 - CutSens) * prev) + (CutSpec * (1 - prev))),
+           RuleoutN = mean(outputmodel$pred$Adenoma < cp$MaxKappa$Global$optimal.cutoff$cutoff))
+
+  outputdata <- list(Table = all_results, roc_train = roc_train, opt_cp = cp)
+  
+  return(outputdata)
+}
+
+tic()
+plan(multisession(workers = 5))
+results_frame <- model_frame %>%
+  unnest_wider("fitted") %>%
+  select(-models) %>%
+  pivot_longer(cols = 3:6, names_to = "model", values_to = "model_fit") %>%
+  mutate(results = future_map(model_fit, Resultfxn, 
+                              .options = furrr_options(packages = c("tidyverse", "caret", "pROC"), seed = T), .progress = T))
+plan(sequential)
+tic()
+
+```
+
+# Table 1
+```{r Table_1}
+FC <- final_cleaned %>%
+  mutate(`Race/ethnicity` = factor(case_when(isWhite == "true" ~ "White",
+                                      isBlack == "true" ~ "Black",
+                                      isAsian == "true" ~ "Asian",
+                                      isHispanic == "true" ~ "Hispanic"), c("White", "Black", "Asian", "Hispanic")))
+
+FC$degree <- gsub("0", "none", FC$degree)
+FC$degree <- factor(FC$degree, levels = c("none","mild","moderate","severe"),
+                    labels = c("None","Mild","Moderate","Severe"))
+
+set.seed(12)
+FJ <- sample_frac(FC, 0.6, replace = FALSE) %>%
+  mutate(cohort = "train")
+
+finaltabledata <- full_join(FC, FJ) %>% 
+  mutate(cohort = if_else(is.na(cohort), "test", "train"))
+
+FC %>%
+  select(age, `Race/ethnicity`, bmiClass, alcohol, number_Ascending_colon, number_Cecum,
+         number_Descending_colon, number_Rectum, number_Sigmoid_colon, diverticulosis, degree, f_any_adenoma) %>%
+  tbl_summary(by = f_any_adenoma, missing = "no", digits = list(all_categorical() ~ c(0, 0, 1), all_continuous() ~ c(1, 1)),
+              type = list(vars(number_Ascending_colon, number_Cecum, number_Descending_colon, number_Rectum, number_Sigmoid_colon) ~ "continuous"),
+              statistic = list(all_continuous() ~ "{mean} ({sd})", all_categorical() ~ "{n} / {N} ({p}%)"),
+              label = list(vars(degree) ~ "Hemorrhoids", vars(number_Cecum) ~ "Polyp number in cecum",
+                           vars(number_Ascending_colon) ~ "Polyp number in ascending colon",
+                           vars(number_Descending_colon) ~ "Polyp number in descending colon",
+                           vars(number_Rectum) ~ "Polyp number in rectum", vars(number_Sigmoid_colon) ~ "Polyp number in sigmoid colon",
+                           vars(diverticulosis) ~ "Diverticulosis", vars(age) ~ "Age", vars(bmiClass) ~ "BMI class", vars(alcohol) ~ "Alcohol use")) %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Diminutive Rectosigmoid Pathology**") %>%
+  add_p(test = list(all_continuous() ~ "aov", all_categorical() ~ "fisher.test"), test.args = all_tests("fisher.test") ~ list(simulate.p.value = T)) %>% 
+  add_n(col_label = "**Missing (N)**", statistic = "{n_miss}", last=TRUE) %>%
+  bold_labels() %>%
+  as_flex_table() %>%
+  theme_vanilla() %>%
+  set_table_properties(layout="autofit") 
+```
+
+#Table 2
+```{r Table_2}
+finaltabledata %>%
+  select(age, `Race/ethnicity`, bmiClass, alcohol, number_Ascending_colon, number_Cecum,
+         number_Descending_colon, number_Rectum, number_Sigmoid_colon, diverticulosis, degree, f_any_adenoma, cohort) %>%
+  tbl_summary(by = cohort, missing = "no", digits = list(all_categorical() ~ c(0, 0, 1), all_continuous() ~ c(1, 1)),
+              type = list(vars(number_Ascending_colon, number_Cecum, number_Descending_colon, number_Rectum, number_Sigmoid_colon) ~ "continuous"),
+              statistic = list(all_continuous() ~ "{mean} ({sd})", all_categorical() ~ "{n} / {N} ({p}%)"),
+              label = list(vars(f_any_adenoma) ~ "Histology", vars(degree) ~ "Hemorrhoids", vars(number_Cecum) ~ "Polyp number in cecum",
+                           vars(number_Ascending_colon) ~ "Polyp number in ascending colon",
+                           vars(number_Descending_colon) ~ "Polyp number in descending colon",
+                           vars(number_Rectum) ~ "Polyp number in rectum", vars(number_Sigmoid_colon) ~ "Polyp number in sigmoid colon",
+                           vars(diverticulosis) ~ "Diverticulosis", vars(age) ~ "Age", vars(bmiClass) ~ "BMI class", vars(alcohol) ~ "Alcohol use")) %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Diminutive Rectosigmoid Pathology**") %>%
+  add_p(test = list(all_continuous() ~ "aov", all_categorical() ~ "fisher.test"), test.args = all_tests("fisher.test") ~ list(simulate.p.value = T)) %>% 
+  add_n(col_label = "**Missing (N)**", statistic = "{n_miss}", last=TRUE) %>%
+  bold_labels() %>%
+  as_flex_table() %>%
+  theme_vanilla() %>%
+  set_table_properties(layout="autofit") 
+```
+
+# Table 3
+```{r Table_3}
+results_frame %>%
+  select(-model_fit) %>%
+  unnest_wider(results) %>%
+  select(!c(roc_train, opt_cp)) %>%
+  unnest_wider("Table") %>%
+  select(!c(imputation_num, Cutpoint, CutSens, CutSpec, CutPPV, CutNPV, AdjCutPPV, AdjCutNPV, RuleoutN)) %>%
+  group_by(smote_percent, model) %>%
+  select(!c(Precision, Recall, F1, Prevalence, `Detection Rate`, `Detection Prevalence`, `Balanced Accuracy`)) %>%
+  summarise(across(.fns = list(mean = mean, se = sd)), .groups = "keep") %>%
+  mutate(across(.cols = contains("mean"), .fns = ~ format(round(as.numeric(.x), 2), nsmall = 2)),
+         across(.cols = contains("se"), .fns = ~ format(round(as.numeric(.x), 3), nsmall = 3))) %>%
+  arrange(model, smote_percent) %>%
+  pivot_longer(3:12, names_to = c("Stat", "meanse"), names_sep = "_", values_to = "value") %>%
+  pivot_wider(id_cols = 1:3, names_from = "meanse", values_from = "value") %>%
+  mutate(combined_value = paste0(mean, " (", format(se, scientific = F), ")")) %>%
+  select(!c(mean, se)) %>%
+  pivot_wider(id_cols = 1:2, names_from = "Stat", values_from = combined_value) %>%
+  relocate(model) %>%
+  mutate(model = case_when(model == "glmnet" ~ "Lasso Regularized Logistic Regression",
+                           model == "knn" ~ "K nearest neighbors",
+                           model == "naive_bayes" ~ "Naive Bayes",
+                           model == "rf" ~ "Random Forest"),
+         smote_percent = factor(smote_percent, 0:1, c("No", "Yes"))) %>%
+  rename(`Prediction model` = model,
+         `Resampled with SMOTE` = smote_percent) %>%
+  flextable() %>%
+  merge_v() %>%
+  fix_border_issues(part = "all") %>%
+  autofit(add_w = 5)
+```
+
+# Table 4
+```{r Table_4}
+results_frame %>%
+  select(-model_fit) %>%
+  unnest_wider(results) %>%
+  select(!c(roc_train, opt_cp)) %>%
+  unnest_wider("Table") %>%
+  select(c(smote_percent, model, CutSens, CutSpec, CutPPV, CutNPV, AdjCutNPV, RuleoutN)) %>%
+  group_by(smote_percent, model) %>%
+  summarise(across(.fns = list(mean = mean, se = sd)), .groups = "keep") %>%
+  mutate(across(.cols = contains("mean"), .fns = ~ format(round(as.numeric(.x), 2), nsmall = 2)),
+         across(.cols = contains("se"), .fns = ~ format(round(as.numeric(.x), 2), nsmall = 2))) %>%
+  arrange(model, smote_percent) %>%
+  pivot_longer(3:14, names_to = c("Stat", "meanse"), names_sep = "_", values_to = "value") %>%
+  pivot_wider(id_cols = 1:3, names_from = "meanse", values_from = "value") %>%
+  mutate(combined_value = paste0(mean, " (", format(se, scientific = F), ")")) %>%
+  select(!c(mean, se)) %>%
+  pivot_wider(id_cols = 1:2, names_from = "Stat", values_from = combined_value) %>%
+  relocate(model) %>%
+  mutate(model = case_when(model == "glmnet" ~ "Lasso Regularized Logistic Regression",
+                           model == "knn" ~ "K nearest neighbors",
+                           model == "naive_bayes" ~ "Naive Bayes",
+                           model == "rf" ~ "Random Forest"),
+         smote_percent = factor(smote_percent, 0:1, c("No", "Yes"))) %>%
+  rename(`Prediction model` = model,
+         `SMOTE` = smote_percent,
+         `Sensitivity at cutpoint` = CutSens,
+         `Specificity at cutpoint` = CutSpec,
+         `PPV at cutpoint` = CutPPV,
+         `NPV at cutpoint` = CutNPV,
+         `NPV at 20% adenoma` = AdjCutNPV,
+         `Proportion ruled out` = RuleoutN) %>%
+  flextable() %>%
+  merge_v(j = 1) %>%
+  fix_border_issues(part = "all") %>%
+  autofit(add_w = 20)
+```
+
+
+# Figure 1
+```{r Figure_1}
+for_roc_panel <- results_frame %>% 
+  select(-model_fit) %>%
+  unnest_wider(results) %>%
+  mutate(roc_coords = map(roc_train, ~ tibble(sens = .$sensitivities, m1spec = 1 - .$specificities)),
+         imputation_num = factor(imputation_num),
+         model = factor(model, c("glmnet", "knn", "naive_bayes", "rf"),
+                c("Lasso Regularized\nLogistic Regression", "K nearest\nneighbors",
+                  "Naive Bayes", "Random Forest")),
+         smote_percent = factor(smote_percent, 0:1, c("Not resampled\nwith SMOTE", "Resampled\nwith SMOTE"))) %>%
+  select(c(imputation_num, model, smote_percent, roc_coords)) %>%
+  rename(`Imputation #` = imputation_num) %>%
+  unnest("roc_coords")
+
+ggplot(for_roc_panel, aes(x = m1spec, y = sens,  color = `Imputation #`)) + 
+  facet_grid(smote_percent ~ model) +
+  geom_line() +
+  scale_x_continuous(labels = NULL) + 
+  scale_y_continuous(labels = NULL) + 
+  ylab("Sensitivity") +
+  xlab("1 - specificity") + 
+  theme_classic() + 
+  theme(aspect.ratio = 1)
+```
+
+#Figure 2
+```{r Figure_2}
+our.plot.optimal.cutpoints <- function (x, legend = TRUE, which = c(1L, 2L), ...) {
+  if (!is.numeric(which) || any(which < 1) || any(which > 
+                                                  3)) 
+    stop("'which' must be in 1:3")
+  show <- rep(FALSE, 3)
+  show[which] <- TRUE
+  op <- par(pty = "s")
+  opt.criterion.methods <- c("MCT", "CB", "MaxSpSe", "MaxProdSpSe", 
+                             "ROC01", "SpEqualSe", "Youden", "MaxEfficiency", "Minimax", 
+                             "MaxDOR", "MaxKappa", "PROC01", "NPVEqualPPV", "MaxNPVPPV", 
+                             "MaxSumNPVPPV", "MaxProdNPVPPV", "MinPvalue", "PrevalenceMatching")
+  methods <- x[x$methods]
+  if (show[3L] & !any(names(methods) %in% opt.criterion.methods)) {
+    warning("The plot of the criterion values vis-a-vis all the different test values has beeen selected. None of the selected methods allows this plot. \n", 
+            call. = FALSE)
+    show[3L] = FALSE
+  }
+  n.levels.cat <- if (is.null(x$levels.cat)) {
+    1
+  }
+  else {
+    length(x$levels.cat)
+  }
+  levels.cat <- if (is.null(x$levels.cat)) {
+    NULL
+  }
+  else {
+    x$levels.cat
+  }
+  n.plots = 0
+  for (i in 1:n.levels.cat) {
+    for (j in 1:length(methods)) {
+      if (length(methods[[j]][[i]][["optimal.cutoff"]][[1]]) == 
+          0) {
+        if (is.null(x$levels.cat)) {
+          cat(paste(names(methods)[j], ": There are no cutoff values that fulfill the criterion \n", 
+                    sep = ""))
+        }
+        else {
+          cat(paste(names(methods)[j], ": There are no cutoff values that fulfill the criterion for ", 
+                    levels.cat[i], "\n", sep = ""))
+        }
+      }
+      aux.criterion <- names(methods)[j] %in% opt.criterion.methods
+      main <- NULL
+      m <- methods[[j]][[i]]
+      if (show[1L]) {
+        if (n.plots > 0) {
+          readline("Press return for next page....")
+        }
+        plot(1 - m[["measures.acc"]][["Sp"]][, 1], m[["measures.acc"]][["Se"]][, 
+                                                                               1], xlab = "1-Specificity", ylab = "Sensitivity", 
+             main = NULL, 
+             type = "l", cex.lab = 1.3, cex.axis = 1.3, 
+             ...)
+        abline(0, 1, col = "grey")
+        legend.text <- paste("AUC: ", paste(round(m[["measures.acc"]][["AUC"]][1], 3), sep = ""))
+        legend(0.4, 0.2, legend.text, bty = "n")
+        if (length(m[["optimal.cutoff"]][[1]]) != 0) {
+          for (k in 1:length(m[["optimal.cutoff"]][[1]])) {
+            x <- 1 - m[["optimal.cutoff"]][["Sp"]][[k]]
+            y <- m[["optimal.cutoff"]][["Se"]][[k]]
+            lines(rep(x, 2), c(0, y), lty = 2)
+            lines(c(0, x), rep(y, 2), lty = 2)
+            points(x, y, pch = 16, cex = 0.7)
+            if (legend) {
+              legend.text <- paste("(", round(x, 3), 
+                                   ", ", round(y, 3), ")", sep = "")
+              legend(x, y, legend.text, bty = "n", xjust = 0.5, 
+                     yjust = 0)
+            }
+          }
+        }
+        n.plots = n.plots + 1
+      }
+      if (show[2L]) {
+        if (n.plots > 0) {
+          readline("Press return for next page....")
+        }
+        plot(1 - m[["measures.acc"]][["NPV"]][, 1], 
+             m[["measures.acc"]][["PPV"]][, 1], xlab = "1 - Negative predictive value", 
+             ylab = "Positive predictive value", main = paste("PROC Curve. ", 
+                                                              main, sep = ""), type = "l", cex.lab = 1.3, 
+             cex.axis = 1.3, xlim = c(0, 1), ylim = c(0, 
+                                                      1), ...)
+        if (length(m[["optimal.cutoff"]][[1]]) != 0) {
+          for (k in 1:length(m[["optimal.cutoff"]][[1]])) {
+            x <- 1 - m[["optimal.cutoff"]][["NPV"]][[k]]
+            y <- m[["optimal.cutoff"]][["PPV"]][[k]]
+            lines(rep(x, 2), c(0, y), lty = 2)
+            lines(c(0, x), rep(y, 2), lty = 2)
+            points(x, y, pch = 16, cex = 0.7)
+            if (legend) {
+              legend.text <- paste("(", round(x, 2), 
+                                   ", ", round(y, 2), ")", sep = "")
+              legend(x, y, legend.text, bty = "n", xjust = 0.5, 
+                     yjust = 0)
+            }
+          }
+        }
+        n.plots = n.plots + 1
+      }
+      if (aux.criterion & show[3L]) {
+        if (n.plots > 0) {
+          readline("Press return for next page....")
+        }
+        plot(m[["measures.acc"]][["cutoffs"]], m[["criterion"]], 
+             xlab = "Cutoffs values", ylab = "Optimal criterion", 
+             main = main, type = "l", cex.lab = 1.3, cex.axis = 1.3, 
+             ...)
+        if (length(m[["optimal.cutoff"]][[1]]) != 0) {
+          for (k in 1:length(m[["optimal.cutoff"]][[1]])) {
+            x <- m[["optimal.cutoff"]][["cutoff"]][[k]]
+            y <- m[["optimal.criterion"]][[1]]
+            lines(rep(x, 2), c(0, y), lty = 2)
+            lines(c(0, x), rep(y, 2), lty = 2)
+            points(x, y, pch = 16, cex = 0.7)
+            if (legend) {
+              legend.text <- paste("(", round(x, 3), 
+                                   ", ", round(y, 3), ")", sep = "")
+              legend(x, y, legend.text, bty = "n", xjust = 0.5, 
+                     yjust = 0)
+            }
+          }
+        }
+        n.plots = n.plots + 1
+      }
+    }
+  }
+  par(op)
+}
+
+frame_to_pull <- results_frame %>%
+  unnest_wider(results)
+
+our.plot.optimal.cutpoints(frame_to_pull[3, 7][[1]][[1]], which = 1, col = "blue")
+title(" ")
+```
+
+# Testing
+```{r testing}
+optimal_cut <- frame_to_pull[3, 7][[1]][[1]]$MaxKappa$Global$optimal.cutoff$cutoff
+optimal_cut
+
+chosen_model <- frame_to_pull[3, 4][[1]][[1]]
+chosen_model
+
+clean_testing <- select(testing, !c("procedure_uid", "any_adenoma"))
+
+impute_testing <- mice(data = clean_testing, m = 1, pred=quickpred(clean_testing, mincor = 0.3), seed = 13)
+imputed_testing <- complete(impute_testing, 1)
+
+predictions <- factor(if_else(predict(chosen_model, newdata = imputed_testing, type = "prob")[, 1] > optimal_cut, 1, 2), 1:2, c("Adenoma", "Nonadenoma"))
+pred_probs <- predict(chosen_model, newdata = imputed_testing, type = "prob")[, 1]
+actual_testing <- imputed_testing$f_any_adenoma
+
+cm <- confusionMatrix(predictions, actual_testing)
+roc_testing <- pROC::roc(actual_testing, pred_probs, levels = c("Adenoma", "Nonadenoma"), direction = ">")
+
+```
+
+
+# Figure 3
+```{r Figure_3, fig.width=6, fig.height=6}
+roc_testing
+plot(roc_testing, xlim = c(1, 0), print.auc = T)
+```
+
+# Table 5a
+```{r Table_5a}
+cm$table
+```
+
+# Table 5b
+```{r Table_5}
+as_tibble(cm$byClass[1:4], rownames = "Statistic") %>%
+  mutate(value = format(round(value, 2), nsmall = 2)) %>%
+  flextable() %>%
+  set_header_labels(Statistic = " ", value = "Value")
+```

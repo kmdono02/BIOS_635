@@ -1,0 +1,4 @@
+Method,Accuracy,Specificity,Sensitivity
+LASSO,0.789 (0.019),0.804 (0.021),0.694 (0.012)
+LASSO (sp),0.834 (0.013),0.867 (0.015),0.620 (0.017)
+Random Forest,0.884 (0.003),0.979 (0.004),0.255 (0.022)

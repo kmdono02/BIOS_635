@@ -1,0 +1,5 @@
+"Outcome","CV Error","Std Error","Method"
+"Cases_vs_median",0.760795454545455,0.0658181408351343,"KNN"
+"Deaths_vs_median",0.766477272727273,0.0530793198788968,"KNN"
+"Confirmed_per_capita",42617.3201167288,62528.7738478204,"KNN"
+"Deaths_per_capita",8.1067932298918,10.887770981791,"KNN"

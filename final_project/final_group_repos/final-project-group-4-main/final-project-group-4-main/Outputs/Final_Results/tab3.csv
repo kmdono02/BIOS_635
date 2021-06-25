@@ -1,0 +1,7 @@
+Method,Event,N,N Correct,N Incorrect,% Correct (SE),% Overall accuracy (SE)
+LASSO,No,26187,21045,5142,80.4 (2.1),78.9 (1.9)
+LASSO,Yes,3970,2754,1216,69.4 (1.2),78.9 (1.9)
+LASSO[sp],No,26187,22703,3484,86.7 (1.5),83.4 (1.3)
+LASSO[sp],Yes,3970,2457,1513,62.0 (1.7),83.4 (1.3)
+Random Forest,No,26187,25638,549,97.9 (0.4),88.4 (0.3)
+Random Forest,Yes,3970,1014,2956,25.5 (2.2),88.4 (0.3)

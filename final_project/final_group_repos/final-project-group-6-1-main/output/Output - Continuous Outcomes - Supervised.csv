@@ -1,0 +1,19 @@
+"Note: all of the methods below were done after removing Animal Products and Vegetal Products, except for Lasso Regression (which removed variables automatically). These results are for the continuous Cases per capita variable.",,,
+10-fold CV done where applicable (pretty much all the methods).,,,
+Outcome,CV Error,Std Error,Method
+Cases_per_capita,36504.56,44787.56,KNN
+Cases_per_capita,32084.33,29445.35,Linear Regression
+Cases_per_capita,31835.49,31126.87,Lasso
+Cases_per_capita,41396.4813,39323.25028,Decision Tree
+Cases_per_capita,62661.0398,21744.76901,Random Forest
+Cases_per_capita,"35,009.90","40,061.10",SVR - Linear Kernel
+Cases_per_capita,"38,395.60","46,048.30",SVR - Radial Kernel
+Cases_per_capita,"35,924.62","53,272.25",SVR - Polynomial Kernel
+Deaths_per_capita,7.225715,8.120621,KNN
+Deaths_per_capita,7.036242,6.884031,Linear Regression
+Deaths_per_capita,6.664275,7.140828,Lasso
+Deaths_per_capita,9.384542,9.9044738,Decision Tree
+Deaths_per_capita,7.219587,6.1027229,Random Forest
+Deaths_per_capita,6.768494,8.125489,SVR - Linear Kernel
+Deaths_per_capita,7.908696,9.312023,SVR - Radial Kernel
+Deaths_per_capita,7.067422,7.989244,SVR - Polynomial Kernel

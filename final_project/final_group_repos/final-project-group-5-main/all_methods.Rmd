@@ -1,0 +1,314 @@
+---
+title: "All Methods"
+author: "Brian Chen, Michelle Ikoma, Juan Shi, John Won"
+date: "4/29/2021"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = FALSE)
+
+library(caret)
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(GGally)
+library(pROC)
+library(randomForest)
+```
+
+## Read in data
+
+```{r data}
+heart_data <- read_csv("data/heart.csv") %>%
+  mutate(sex = as.factor(sex),
+         cp = as.factor(cp),
+         fbs = as.factor(fbs),
+         restecg = as.factor(restecg),
+         exang = as.factor(exang),
+         ca = ifelse(ca==4,NA,ca),
+         thal = ifelse(thal==0,NA,thal),
+         thal = as.factor(thal),
+         target = ifelse(target==0,1,ifelse(target==1,0,NA)),
+         target = as.factor(target)) %>%
+  drop_na()
+
+```
+
+## Table Summary
+
+```{r tbl_summary}
+heart_data %>% 
+  tbl_summary(by = target,
+              label = list(
+                age ~ 'Age',
+                sex ~ 'Sex',
+                cp ~'Chest pain type',
+                trestbps ~ 'Resting systolic BP',
+                chol ~ 'Cholesterol',
+                fbs ~ 'Fasting blood sugar > 120 mg/dL',
+                restecg ~ 'Resting ECG results',
+                thalach ~ 'Maximum HR',
+                exang ~ 'Exercise induced angina',
+                oldpeak ~ 'ST depression induced by exercise',
+                slope ~ 'Slope of peak exercise ST segment',
+                ca ~ '# major vessels seen on fluoroscopy',
+                thal ~ 'Stress test results'
+              ),
+              statistic = list(all_continuous() ~ "{mean} ({sd})",all_categorical()~"{n} / {N} ({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table()%>%
+  bold(i = 1, part = 'header') %>%
+  bg(i = 1, bg = 'gray', part = 'header')
+
+```
+
+## Correlation Plot of continuous variables
+
+```{r corr, fig.width = 12, fig.height = 8, message = FALSE}
+ggpairs(heart_data, 
+        columns = c("age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"),
+        ggplot2::aes(color = target))
+```
+
+
+## Logistic Regression 0.5 threshold
+```{r log1}
+## Create K=5 folds
+set.seed(12)
+tt_indicies <- createFolds(y=heart_data$target, k=5)
+
+## Create lists to hold results
+log_fit_hd <- list()
+log_est_prob_hd <- list()
+log_pred_class_hd <- list()
+log_overall_accuracy_hd <- list()
+log_overall_error_hd <- list()
+log_fit_cm_hd <- list()
+log_sensitivity_hd <- list()
+log_specificity_hd <- list()
+ for(f in 1:length(tt_indicies)){
+    heart_data_train <- heart_data[-tt_indicies[[f]],]
+    heart_data_test <- heart_data[tt_indicies[[f]],]
+  
+    log_fit_hd[[f]] <- glm(target ~., 
+                             data = heart_data_train, family = "binomial")
+        
+    log_est_prob_hd[[f]] <- predict(log_fit_hd[[f]], newdata= heart_data_test, type = "response")
+    heart_data_test$log_est_prob <- log_est_prob_hd[[f]]
+    
+    
+    heart_data_test <- heart_data_test %>%
+      mutate(log_pred_class = 
+           relevel(factor(ifelse(log_est_prob<0.5, "0", "1")),
+                   ref = "0"))
+    log_pred_class_hd[[f]] <- heart_data_test$log_pred_class
+    log_overall_accuracy_hd[[f]] <- mean(heart_data_test$target==heart_data_test$log_pred_class)
+    log_overall_error_hd[[f]] <- 1-log_overall_accuracy_hd[[f]]
+    
+  # Create and print out confusion matrix:
+  log_fit_cm_hd[[f]] <- confusionMatrix(data = heart_data_test$log_pred_class,
+                reference = heart_data_test$target,
+                positive = "1")
+  log_sensitivity_hd[[f]] <- log_fit_cm_hd[[f]]$byClass[[1]]
+  log_specificity_hd[[f]] <- log_fit_cm_hd[[f]]$byClass[[2]] 
+  
+  }
+  
+log_overallerror_hd_df <- data.frame(do.call("rbind", log_overall_error_hd))
+log_sensitivity_hd_df <- data.frame(do.call("rbind", log_sensitivity_hd))
+log_specificity_hd_df <- data.frame(do.call("rbind", log_specificity_hd))
+
+## Compute mean and SE for each measure to get CV mean/SE
+log_hd_mean_1 <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=mean)
+log_hd_sd_1 <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=sd)
+
+```
+
+## Logistic Regression: Youden's index
+```{r log2}
+## Create K=5 folds
+set.seed(12)
+tt_indicies <- createFolds(y=heart_data$target, k=5)
+
+## Create lists to hold results
+log_fit_hd <- list()
+log_est_prob_hd <- list()
+log_roc_obj_hd <- list()
+log_best_thresh_data <- list()
+log_pred_class_hd <- list()
+log_overall_accuracy_hd <- list()
+log_overall_error_hd <- list()
+log_fit_cm_hd <- list()
+log_sensitivity_hd <- list()
+log_specificity_hd <- list()
+
+
+for(f in 1:length(tt_indicies)){
+    heart_data_train <- heart_data[-tt_indicies[[f]],]
+    heart_data_test <- heart_data[tt_indicies[[f]],]
+  
+    log_fit_hd[[f]] <- glm(target ~., 
+                             data = heart_data_train, family = "binomial")
+        
+    log_est_prob_hd[[f]] <- predict(log_fit_hd[[f]], newdata= heart_data_test, type = "response")
+    heart_data_test$log_est_prob <- log_est_prob_hd[[f]]
+    
+    ##Create ROC object to determine 'best' threshold:
+    log_roc_obj_hd[[f]] <- roc(response = heart_data_test$target, 
+      predictor = heart_data_test$log_est_prob)
+    
+    log_best_thresh_data[[f]] <- 
+      data.frame(coords(log_roc_obj_hd[[f]], x="best", best.method = c("youden", "closest.topleft")))
+    
+    
+    heart_data_test <- heart_data_test %>%
+      mutate(log_pred_class = 
+           relevel(factor(ifelse(log_est_prob<log_best_thresh_data[[f]]$threshold, "0", "1")),
+                   ref = "0"))
+    log_pred_class_hd[[f]] <- heart_data_test$log_pred_class
+    log_overall_accuracy_hd[[f]] <- mean(heart_data_test$target==heart_data_test$log_pred_class)
+    log_overall_error_hd[[f]] <- 1-log_overall_accuracy_hd[[f]]
+    
+  # Create and print out confusion matrix:
+  log_fit_cm_hd[[f]] <- confusionMatrix(data = heart_data_test$log_pred_class,
+                reference = heart_data_test$target,
+                positive = "1")
+  log_sensitivity_hd[[f]] <- log_fit_cm_hd[[f]]$byClass[[1]]
+  log_specificity_hd[[f]] <- log_fit_cm_hd[[f]]$byClass[[2]] 
+  
+  }
+  
+log_overallerror_hd_df <- data.frame(do.call("rbind", log_overall_error_hd))
+log_sensitivity_hd_df <- data.frame(do.call("rbind", log_sensitivity_hd))
+log_specificity_hd_df <- data.frame(do.call("rbind", log_specificity_hd))
+
+
+## Compute mean and SE for each measure to get CV mean/SE
+log_hd_mean_2 <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=mean)
+log_hd_sd_2 <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=sd)
+
+#Best Youden's
+youdens <- do.call("rbind", log_best_thresh_data)$threshold
+data.frame(mean = mean(youdens),
+           sd = sd(youdens))%>%
+  flextable() %>%
+  set_header_labels("mean" = "Mean", "sd" = "Standard Deviation") %>%
+  colformat_num(digits = 3) %>%
+  bg(i = 1, bg = 'gray', part = 'header') %>%
+  bold(i = 1, part = 'header') %>%
+  autofit()
+  
+```
+
+## KNN
+``` {r knn}
+set.seed(12)
+individualfolds<- createFolds(y=heart_data$target, k=5)
+cv_error_knn <- rep(NA, 5)
+best_k <- rep(NA,5)
+
+for(i in 1:length(individualfolds)){
+  heart_train <- heart_data[-individualfolds[[i]],]
+  heart_test <- heart_data[individualfolds[[i]],]
+    
+  KNNfit<-train(target ~., data = heart_train, method = "knn",
+                  preProcess = c("center","scale"),
+                  tuneLength = 10)
+    
+  heart_test$pred_target <- predict(KNNfit, newdata=heart_test,type="raw")
+  confusion_matrix <-confusionMatrix(data = heart_test$pred_target,
+                reference = heart_test$target, 
+                positive = "1")
+  cv_error_knn[i] <- 1 - confusion_matrix$overall[1]
+  best_k[i] <- KNNfit$bestTune[1,1]
+}
+
+data.frame(Mean = mean(best_k),
+           sd = sd(best_k)) %>%
+  flextable() %>%
+  set_header_labels("sd" = "Standard Deviation") %>%
+  colformat_num(digits = 3) %>%
+  bg(i = 1, bg = 'gray', part = 'header') %>%
+  bold(i = 1, part = 'header') %>%
+  autofit()
+  
+```
+
+## Random Forest
+```{r RF}
+# Create grid
+set.seed(12)
+
+total_p <- dim(heart_data)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+test_results <- rep(NA, 5)
+best_tune <- list()
+tt_indices <- createFolds(y = heart_data$target, k=5)
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  heart_train <- heart_data[-tt_indices[[i]],]
+  heart_test <- heart_data[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(target~., data=heart_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$err.rate[tuning_grid$trees[j], 1]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "oob_error"=tune_results)
+  best_tune[[i]] <- train_tune_results[which(tune_results==min(tune_results)),][1,]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(target~., data=heart_train,
+                            mtry = best_tune[[i]]$p,
+                            ntree = best_tune[[i]]$trees)
+  
+  # Test on test data
+  heart_test$test_predict <- predict(rf_fit, newdata=heart_test)
+  
+  # Error rates
+  confusion_matrix <-confusionMatrix(data = heart_test$test_predict,
+                reference = heart_test$target, 
+                positive = "1")
+  test_results[i] <- 1 - confusion_matrix$overall[1]
+}
+
+best_tune_df <- do.call("rbind", best_tune) %>% mutate(trees = as.character(trees))
+best_tune_df %>% 
+  flextable() %>%
+  set_header_labels("trees" = "# of Trees", "p" = "# of Features", "oob_error" = "OOB Error") %>%
+  colformat_num(digits = 3) %>%
+  bg(i = 1, bg = 'gray', part = 'header') %>%
+  bold(i = 1, part = 'header') %>%
+  autofit()
+```
+
+```{r table}
+data.frame(Method = c("Logistic: 0.5 Threshold", "Logistic: Youden's Index*", "KNN", "Random Forest"),
+           mean = c(log_hd_mean_1, log_hd_mean_2, mean(cv_error_knn), mean(test_results)),
+           sd = c(log_hd_sd_1, log_hd_sd_2, sd(cv_error_knn), sd(test_results))) %>%
+  flextable() %>%
+  set_header_labels("mean" = "CV Error Mean", "sd" = "CV Standard Error") %>%
+  colformat_num(digits = 3) %>%
+  bold(part='header') %>%
+  bg(i = 1, bg = 'gray', part = 'header') %>%
+  autofit()
+```

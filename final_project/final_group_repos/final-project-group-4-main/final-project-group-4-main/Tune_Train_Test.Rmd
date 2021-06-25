@@ -1,0 +1,236 @@
+---
+title: "Tune, Train, & Test"
+author: "Chris Moore"
+date: "4/30/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r packages, echo=TRUE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(data.table)
+library(caret)
+library(splines)
+library(glmnet)
+library(pROC)
+```
+
+
+
+## Set-up 
+
+#### Custom functions   
+
+```{r}
+cust_funcs <- list.files("./R", full.names = TRUE)
+invisible(sapply(cust_funcs[!grepl("create_|exclusions_", cust_funcs)], source))
+```
+<br/>
+
+#### Data  
+
+```{r, results='hide'}
+source("./R/setup_data.R")
+```  
+
+**************************
+<br/> <br/>
+
+
+
+## Random forest
+
+#### Set all parameters and arguments  
+
+```{r}
+# Variables ##$##$
+outc_rf<- "event_asfac"
+predictors <- xvars
+
+# K-fold ##$##$ 
+kfolds <- 5
+
+# Tuning grid ##$##$
+n_trees <- c(250, 500, 750)   # set B
+n_preds <- c(4, 6, 8, 12, 16) # set m (see note)
+# sqrt(length(predictors))    # note: m should include sqrt(p)
+
+# For nested tuning - extracts error from train() object ##$
+caret_err <- function(m) {1 - m[["results"]][["Accuracy"]]}
+```
+<br/>  
+
+
+#### Run random forest
+
+First create arguments out of the specifications from above
+
+```{r}
+# Formula ##$
+frmla_rf <- as.formula(paste(outc_rf, "~", paste(predictors, collapse = " + ")))
+
+# Arguments for caret::train() except `ntree` ##$##$
+args_rf <- list(method = "rf", 
+                tuneGrid  = expand.grid(.mtry = n_preds),
+                trControl = trainControl(method = "oob"))
+```
+
+
+
+Run k-fold cross-validation with random forest.   
+**WARNING, may take ~29.73912 mins**   
+
+* `ret_mods` and `ret_preds` set to `TRUE` outputs the trained model and test    predictions for each fold, as well as the summarized error/accuracy    
+* args_tune = additional parameters to tune in train se
+  + e.g., `ntree`, functional form  
+  + `func_min` is applied to all models fit in the train set to extract error and choose the best model to be evaluated in the test set   
+  + See `nest_tune.R`  
+* args_set = arguments that will not be truned  
+  + e.g., `family = binomial()` for LASSO, `tuneGrid` for what caret allow tuning,
+
+```{r, cache=TRUE}
+{tm <- Sys.time() # For time diff
+
+rf_results <- kfold_cv(
+  dat = dat, k = kfolds, seed = 12, pred_type = "raw",  y_class = "categ", 
+  id_col="VAERS_ID", ret_mods = TRUE,  ret_preds = TRUE, # What to output
+  args_tune = list(param="ntree", vals=n_trees), # 
+  args_set = c(list(frmla=frmla_rf, fit_method="train"), args_rf),
+  func_min = caret_err
+)
+Sys.time() - tm } # Time diff
+```
+
+
+
+```{r, include=FALSE}
+# Save with info on tuning ##$
+rf_params <- list(outcome=outc_rf, predictors=predictors, k=kfolds,
+                  n_preds=n_preds, n_trees=n_trees)
+save(rf_results, rf_params, file="./Outputs/kfold_output/kfold_output_RF.RData")
+```
+
+**************************
+<br/> <br/>
+
+
+
+## Logistic lasso
+
+#### Set all parameters and arguments
+```{r}
+# Variables ##$##$
+outc_lso <- "event_asnum"
+predictors <- xvars 
+
+# K-fold ##$##$ 
+kfolds <- 5
+
+# Weights for sensitivity and specificity ##$##$
+wt_se <- 0.8 # or 1
+wt_sp <- 1.2 # or 1
+
+# For lasso i.e. cv.glmnet() ##$##$
+lambd <- NULL # letting glmnet chooses its own sequence 
+
+# Functional forms for age ##$##$
+forms_age_grid <- as.data.frame(
+  expand.grid(f = c("poly", "bs", "ns"), # Polynomial, Spline, Natural spline
+              d = c(1:4),                # degrees for poly() and bs()
+              k = c(1:4),                # numbers of knots for splines
+              x = "(AGE_YRS")            # X variables
+)
+
+# Variables for two-way interactions ##$##$
+vars_int <- c("VAX_MANU", "VAX_DOSE_SERIES", "PriorAllergy", "PriorVaxAE", 
+              "cur_htn", "cur_dm", "AGE_YRS") 
+
+# For nested tuning - extracts error from cv.glmnet() object ##$
+glmnet_err <- function(m) {m[["cvm"]]}
+```
+<br/>  
+
+
+#### Run logistic lasso
+
+First create formulas from `forms_age_grid`
+
+```{r}
+# Paste together function, knots, and/or degree ##$
+forms_age <- forms_age_grid %>% 
+  mutate(frmla = case_when(
+    f=="poly" ~ paste0(f, x, ", degree=", d, ")"),
+    f=="bs" ~ paste0(f, x, ", df=", k+d+1 , ", degree=", d, ")"),
+    f=="ns" ~ paste0(f, x, ", df=",k , ")")
+  )) %>% select(frmla) %>%
+  unlist() %>% unique()
+
+
+# Add interactions via: y ~ x0 + (x1 + x2 + x3)^2 ##$ 
+add_interact <- function(all_preds, vars_int, as_frmla = FALSE) {
+  no_int <- paste(predictors[!predictors %in% vars_int], collapse = " + ")
+  int <- paste(vars_int, collapse = " + ")
+  f <- paste0(outc_lso, " ~ ", no_int, " + (", int, ")^2")
+  return(ifelse(as_frmla==TRUE, as.formula(f), f))
+}
+
+# Apply gsub with functional forms for age to interaction func output ##$
+frmla_loglso <- lapply(forms_age, function(x) {
+  as.formula(
+    gsub("AGE_YRS", x, add_interact(all_preds=predictors, vars_int=vars_int)) 
+  )
+})
+names(frmla_loglso) <- forms_age
+```
+   
+
+
+Run logistic LASSO in k-fold cross-validation.  
+**WARNING: may take ~2.909641 hours**   
+
+```{r, cache=TRUE}
+{tm <- Sys.time() # Store current time
+
+loglso_results <- kfold_cv(
+  dat = dat, k = kfolds, seed = 12, pred_type = "response",  y_class = "categ", 
+  p_thresh = "roc", wt_sens=wt_se, wt_spec=wt_sp, 
+  ret_mods = TRUE,  ret_preds = TRUE,
+  args_tune = list(param="frmla", vals=frmla_loglso), 
+  args_set = list(family=binomial(), alpha=1, lambda=lambd, fit_method="cv.glmnet"),
+  func_min = glmnet_err
+)
+Sys.time() - tm} # Time diff
+```
+
+
+
+
+```{r, include=FALSE}
+# Save with info on tuning ##$
+loglso_params <- list(
+  outc_lso=outc_lso, predictors=predictors, k=kfolds, 
+  vars_int=vars_int, lambda_try=lambd, 
+  wt_sens=wt_se, wt_spec=wt_sp, frmla_loglso=frmla_loglso
+)
+
+if(wt_se==1 & wt_sp==1) {
+  save(loglso_results, loglso_params, 
+       file="./Outputs/kfold_output/kfold_output_LogLasso.RData")
+} else {
+  loglso_results_wtd <- loglso_results
+  loglso_params_wtd <- loglso_params
+  save(loglso_results_wtd, loglso_params_wtd, file=paste0(
+    "./Outputs/kfold_output/kfold_output_LogLasso_se",wt_se,"sp",wt_sp,".RData"
+  ))
+}
+
+
+```
+

@@ -1,0 +1,19 @@
+vrbl,desc,type,Deried from,source
+SEX,Sex,categ,SEX,data
+VAX_MANU,Vaccine Manufacturer,categ,VAX_MANU,vax
+VAX_DOSE_SERIES,Number of doses administered,num,VAX_DOSE_SERIES,vax
+AGE_YRS,Age in Years,num,AGE_YRS,data
+Birthdefect,"Congenital Anomaly or Birth Defect (BIRTH_DEFECT): If the vaccine recipient had a congenital anomaly or birth defect associated with the vaccination, a ""Y"" is used; otherwise the field will be blank",categ,"BIRTH_DEFECT ==""Y"" & SEX==""F"" & (age_group <= 4 & age_group >= 1 )",data
+PostCOVID19dx,COVID-19 reported as an adverse event,categ,SYMPTOM1:SYMPTOM5,symp
+NUMDAYS,Number of days (Onset date - Vax. Date),num,NUMDAYS,data
+PriorAllergy,"Allergies to medications, food or other products",categ,ALLERGIES,vax
+PriorVaxAE,Prior Vax Adverse Event,categ,PRIOR_VAX,vax
+cur_htn,Hypertension at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_dm,Diabetes (1 and 2) at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_copd,COPD at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_cancer,Cancer (non-melanoma skin?) at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_hf,Heart failure at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_MI,Prior MI at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_ckd,Chronic kidney disease at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_dialysis,On dialysis at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data
+cur_stroke,Prior stroke at vaccination data,categ,CUR_ILL (Illnesses at time of vaccination),data

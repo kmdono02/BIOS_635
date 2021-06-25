@@ -1,0 +1,90 @@
+---
+title: "635_group3"
+author: "Group3"
+date: "4/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+
+
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+library(GGally)
+library(ggpubr)
+```
+
+Each of us may need to change the working directory each time we run scripts.
+
+Xueyao's WD: "C:/Users/wxycd/Desktop/UNC study/4th Semester/635/Project_final"
+
+```{r setWD and read data}
+#feel free to change to your own data folder
+setwd("C:/Users/wxycd/Desktop/UNC study/4th Semester/635/Project_final")
+spine <- read_csv("data/column_3C_weka.csv") %>%
+  mutate(class = factor(class))
+```
+
+## Data exploration
+
+```{r data exploration}
+head(spine)
+summary(spine)
+sum(is.na(spine)) # No missing data in dataset
+```
+
+Boxplot of 6 variables, do we need to clear out the outliers?
+```{r boxplot}
+plot_list <- list()
+continuous_variables <- names(spine)[1:6]
+for(i in 1:length(continuous_variables)){
+  plot_list[[i]] <- 
+    ggplot(data=spine, 
+       mapping=aes_string(x="class", y=continuous_variables[i], fill="class"))+
+    geom_boxplot(outlier.color = "red")+
+    labs(y="Distribution of continuous variables", x="Spine Class")+
+    theme_bw()+
+    theme(legend.position = "none") +
+    annotate("text",  x= 0, y = Inf, label = continuous_variables[i], 
+             vjust=1, hjust=0, size = 5)
+}
+ggarrange(plotlist = plot_list, 
+          ncol = 2
+          )
+```
+```{r correlation plot and distribution plot}
+library(corrplot)
+
+spine%>%
+  select(-class) %>%
+  cor() %>%
+  corrplot(method="number",
+           order = "AOE")
+
+
+##Scatterplots
+ggpairs(spine, 
+        ggplot2::aes(colour=class))
+```
+Summary table
+```{r Summary table}
+spine %>%
+    tbl_summary(
+            by=class,
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n} ({p}%)")
+            ) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bold(part = "header")
+```
+
+##Model
+Which two or more models should we choose?
+```{r model1}
+
+```

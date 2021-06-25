@@ -1,0 +1,236 @@
+---
+title: "fp_RF"
+author: "Lauren Koval"
+date: "4/21/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, include = TRUE, fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+library(randomForest)
+library(DMwR)
+```
+
+
+```{r clean, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+stroke_data <- read_csv("healthcare-dataset-stroke-data.csv", na = c("N/A","NA","", "Unknown")) %>%
+  select(-id) %>%
+  drop_na()
+
+stroke_data <- stroke_data %>%
+  mutate(stroke = as.factor(stroke),
+         male = ifelse(gender=="Male",1,0),
+         ever_married = ifelse(ever_married=="Yes",1,0), 
+         job_child = ifelse(work_type=="children",1,0), 
+         job_gov = ifelse(work_type=="Govt_job",1,0),
+         job_never = ifelse(work_type=="Never_worked",1,0), 
+         job_private = ifelse(work_type=="Private",1,0),
+         job_selfempl = ifelse(work_type=="Self-employed",1,0),
+         rural = ifelse(Residence_type=="Rural",1,0),
+         ever_smoked = ifelse(smoking_status %in% c("formerly smoked", "smokes"), 1, 0)) %>%
+  select(-c(gender, work_type, Residence_type, smoking_status))
+```
+
+```{r RF, echi=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+set.seed(12)
+
+
+stroke_data <- stroke_data %>% mutate_at(c("hypertension",
+                                           "heart_disease",
+                                           "ever_married",
+                                           "stroke",
+                                           "male",
+                                           "job_child",
+                                           "job_gov",
+                                           "job_never",
+                                           "job_private",
+                                           "job_selfempl",
+                                           "rural",
+                                           "ever_smoked"),
+                                         function(x) as.factor(x))
+
+individualfolds<- createFolds(y=stroke_data$stroke, k=10)
+
+results_RF_class <- data.frame(accuracy=numeric())
+by_class<- data.frame(accuracy=numeric())
+
+n_pred <- dim(stroke_data)[2]-1
+n_trees <- c(50,250,500)
+n_ms <- c(n_pred/2, sqrt(n_pred), n_pred)
+
+for(i in 1:length(individualfolds)){
+      c <-1
+      cla_rf_ntree <- c()
+      cla_rf_m <- c()
+      cla_rf_oob_acc <- c()
+
+      train_data <- stroke_data[-individualfolds[[i]],]
+      test_data <- stroke_data[individualfolds[[i]],]
+      
+      for(j in 1:length(n_trees)){
+        for(k in 1:length(n_ms)){
+          rf_tune <- randomForest(stroke~., train_data, ntree=n_trees[j], mtry=n_ms[k])
+          cla_rf_ntree[c] <- n_trees[j]
+          cla_rf_m[c] <- n_ms[k]
+          cla_rf_oob_acc[c] <- rf_tune$err.rate[n_trees[j],1]
+          c <- c+1
+        }
+      }
+
+      tune_res <- data.frame(cbind(cla_rf_ntree,cla_rf_m,cla_rf_oob_acc))
+      best_tune <- tune_res %>% filter(cla_rf_oob_acc==min(cla_rf_oob_acc)) %>% unlist() %>% unname()
+      best_tune
+   
+      RFfit_class <- randomForest(stroke~., train_data, ntree=best_tune[1], mtry=best_tune[2])
+
+      test_data$preds <- predict(RFfit_class, test_data)
+      
+      
+      per_class_accuracy <- rep(NA, length(levels(test_data$stroke)))
+      for(l in 1:length(levels(test_data$stroke))){
+        per_class_accuracy[l] <- 
+        test_data%>%
+        filter(stroke==levels(stroke)[l]) %>%
+        summarise(accuracy = sum(preds==levels(stroke)[l])/n()) %>%
+        unlist()
+          
+        names(per_class_accuracy)[l] <- 
+        paste0("accuracy_", levels(test_data$stroke)[l])
+      }
+      by_class <- rbind(by_class,per_class_accuracy)
+      
+      test_metrics <- data.frame(postResample(test_data$preds,test_data$stroke)) %>%
+        rename("value"=`postResample.test_data.preds..test_data.stroke.`) %>%
+        rownames_to_column("metric")
+      rownames(test_metrics) <- test_metrics$metric
+      test_metrics <- test_metrics %>% select(value)
+      test_metrics <- t(test_metrics)
+      rownames(test_metrics) <- paste0("cv_fold_",i)
+      results_RF_class <- rbind(results_RF_class,test_metrics)
+      
+}
+rn <- rownames(results_RF_class)
+
+rownames(results_RF_class) <- c(rn)
+
+results_RF_class <- cbind(results_RF_class, by_class)
+
+colnames(results_RF_class) <- c("Overall_Accuracy","Kappa", "Class_0", "Class_1")
+
+results_RF_class <- results_RF_class %>% select(!Kappa)
+
+results_RF_class <- rbind(results_RF_class, lapply(results_RF_class, mean))
+results_RF_class <- rbind(results_RF_class, lapply(results_RF_class, sd))
+
+rownames(results_RF_class) <- c(rn, "mean","SE")
+
+results_RF_class
+```
+
+
+
+
+
+
+
+```{r smoted, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+set.seed(12)
+
+individualfolds<- createFolds(y=stroke_data$stroke, k=10)
+
+results_RF_class <- data.frame(accuracy=numeric())
+by_class<- data.frame(accuracy=numeric())
+
+
+
+  # Compute weights
+
+
+n_pred <- dim(stroke_data)[2]-1
+n_trees <- c(50,250,500,750)
+n_ms <- c(n_pred/2, sqrt(n_pred), 2*sqrt(n_pred), n_pred)
+
+control <- trainControl(method = 'cv',
+                        number = 5,
+                        search = 'grid')
+
+for(i in 1:length(individualfolds)){
+      tune_res <- data.frame(ntree=numeric(), mtry=numeric(), Accuracy=numeric())
+
+      train_data <- stroke_data[-individualfolds[[i]],]
+      train_smote <- SMOTE(stroke~., data=as.data.frame(train_data), perc.under = 150)
+      
+      test_data <- stroke_data[individualfolds[[i]],]
+      tunegrid <- expand.grid(.mtry = n_ms) 
+      
+      for(j in 1:length(n_trees)){
+        nt <- n_trees[j]
+        rf_tune <- train(stroke~., train_smote, method="rf", trControl=control, tuneGrid=tunegrid, ntree=nt )
+        res <- rf_tune$results
+        res <- as.data.frame(res)
+        res$n <- nt
+        
+        tune_res <- rbind(tune_res, res)
+
+        
+      }
+
+      
+      best_tune <- tune_res %>% filter(Accuracy==max(Accuracy)) %>% unlist() %>% unname()
+      best_tune
+      
+      tunegrid <- expand.grid(.mtry = best_tune[1])
+      RFfit_class <- train(stroke~., train_smote, method="rf", trControl=control, tuneGrid=tunegrid, ntree=best_tune[6])
+
+      test_data$preds <- predict(RFfit_class, test_data)
+      
+      
+      per_class_accuracy <- rep(NA, length(levels(test_data$stroke)))
+      for(l in 1:length(levels(test_data$stroke))){
+        per_class_accuracy[l] <- 
+        test_data%>%
+        filter(stroke==levels(stroke)[l]) %>%
+        summarise(accuracy = sum(preds==levels(stroke)[l])/n()) %>%
+        unlist()
+          
+        names(per_class_accuracy)[l] <- 
+        paste0("accuracy_", levels(test_data$stroke)[l])
+      }
+      by_class <- rbind(by_class,per_class_accuracy)
+      
+      test_metrics <- data.frame(postResample(test_data$preds,test_data$stroke)) %>%
+        rename("value"=`postResample.test_data.preds..test_data.stroke.`) %>%
+        rownames_to_column("metric")
+      rownames(test_metrics) <- test_metrics$metric
+      test_metrics <- test_metrics %>% select(value)
+      test_metrics <- t(test_metrics)
+      rownames(test_metrics) <- paste0("cv_fold_",i)
+      results_RF_class <- rbind(results_RF_class,test_metrics)
+      
+}
+rn <- rownames(results_RF_class)
+
+rownames(results_RF_class) <- c(rn)
+
+results_RF_class <- cbind(results_RF_class, by_class)
+
+colnames(results_RF_class) <- c("Overall_Accuracy","Kappa", "Class_0", "Class_1")
+
+results_RF_class <- results_RF_class %>% select(!Kappa)
+
+results_RF_class <- rbind(results_RF_class, lapply(results_RF_class, mean))
+results_RF_class <- rbind(results_RF_class, lapply(results_RF_class, sd))
+
+rownames(results_RF_class) <- c(rn, "mean","SE")
+
+results_RF_class
+
+
+
+```

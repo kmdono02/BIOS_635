@@ -1,0 +1,127 @@
+---
+title: "Random Forest"
+author: "Group 5"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(GGally)
+library(caret)
+library(randomForest)
+
+#setwd("C:/Users/jjwon/Documents/R/BIOS635/final-project-group-5-main")
+```
+
+## Read in data
+
+```{r data}
+heart_data <- read_csv("data/heart.csv") %>%
+  mutate(sex = as.factor(sex),
+         cp = as.factor(cp),
+         fbs = as.factor(fbs),
+         restecg = as.factor(restecg),
+         exang = as.factor(exang),
+         thal = as.factor(thal),
+         target = as.factor(target)) %>%
+  drop_na()
+```
+
+## Table Summary
+
+```{r tbl_summary}
+heart_data %>% 
+  tbl_summary(by = target,
+              statistic = list(all_continuous() ~ "{mean} ({sd})",all_categorical()~"{n} / {N} ({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table()%>%
+  bold(i = 1, part = 'header')
+
+```
+
+## Correlation Plot of continuous variables
+
+```{r corr, fig.width = 12, fig.height = 8}
+ggpairs(heart_data, 
+        columns = c("age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"),
+        ggplot2::aes(color = target))
+```
+
+## Random Forest Algorithm
+
+```{r rf}
+# Create grid
+total_p <- dim(heart_data)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+test_results <- list()
+
+tt_indices <- createFolds(y = heart_data$target, k=5)
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  heart_train <- heart_data[-tt_indices[[i]],]
+  heart_test <- heart_data[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(target~., data=heart_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$err.rate[tuning_grid$trees[j], 1]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "oob_error"=tune_results)
+  best_tune <- train_tune_results[which(tune_results==min(tune_results)),][1,]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(target~., data=heart_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  heart_test$test_predict <- predict(rf_fit, newdata=heart_test)
+  
+  # Save fold-specific, class-specific error rates
+  per_class_accuracy <- rep(NA, length(levels(heart_test$target)))
+  
+  for(l in 1:length(per_class_accuracy)){
+    per_class_accuracy[l] <- 
+      heart_test %>%
+      filter(target==levels(target)[l]) %>%
+      summarise(accuracy = sum(test_predict==levels(target)[l])/n()) %>%
+      unlist()
+            
+    names(per_class_accuracy)[l] <- 
+      paste0("accuracy_", levels(heart_test$target)[l])
+  }
+  
+  test_results[[i]] <- per_class_accuracy
+}
+
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results))
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+# Create data frame for flex table
+all_results <- data.frame("Class"=levels(heart_data$target),
+           "CV_Accuracy"=cv_error,
+           "CV_SE"=cv_error_se)
+rownames(all_results) <- NULL
+flextable(all_results)
+```
+
+

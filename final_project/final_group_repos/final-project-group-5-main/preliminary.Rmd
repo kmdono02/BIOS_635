@@ -1,0 +1,53 @@
+---
+title: "Preliminary Analysis"
+author: "Brian Chen"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(GGally)
+```
+
+## Read in data
+
+```{r data}
+heart_data <- read_csv("data/heart.csv") %>%
+  mutate(sex = as.factor(sex),
+         cp = as.factor(cp),
+         fbs = as.factor(fbs),
+         restecg = as.factor(restecg),
+         exang = as.factor(exang),
+         thal = as.factor(thal),
+         target = as.factor(target)) %>%
+  drop_na()
+```
+
+## Table Summary
+
+```{r tbl_summary}
+heart_data %>% 
+  tbl_summary(by = target,
+              statistic = list(all_continuous() ~ "{mean} ({sd})",all_categorical()~"{n} / {N} ({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table()%>%
+  bold(i = 1, part = 'header')
+
+```
+
+## Correlation Plot of continuous variables
+
+```{r corr, fig.width = 12, fig.height = 8}
+ggpairs(heart_data, 
+        columns = c("age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"),
+        ggplot2::aes(color = target))
+```
+
+
+

@@ -1,0 +1,222 @@
+---
+title: "Preliminary Analysis (w/ new labels & updated 'target') + Logistic Regression"
+author: "Michelle Ikoma"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(caret)
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(GGally)
+library(pROC)
+```
+
+## Read in data
+
+```{r data}
+heart_data <- read_csv("data/heart.csv") %>%
+  mutate(sex = as.factor(sex),
+         cp = as.factor(cp),
+         fbs = as.factor(fbs),
+         restecg = as.factor(restecg),
+         exang = as.factor(exang),
+         ca = ifelse(ca==4,NA,ca),
+         thal = ifelse(thal==0,NA,thal),
+         thal = as.factor(thal),
+         target = ifelse(target==0,1,ifelse(target==1,0,NA)),
+         target = as.factor(target)) %>%
+  drop_na()
+
+```
+
+## Table Summary
+
+```{r tbl_summary}
+heart_data %>% 
+  tbl_summary(by = target,
+              label = list(
+                age ~ 'Age',
+                sex ~ 'Sex',
+                cp ~'Chest pain type',
+                trestbps ~ 'Resting systolic BP',
+                chol ~ 'Cholesterol',
+                fbs ~ 'Fasting blood sugar > 120 mg/dL',
+                restecg ~ 'Resting ECG results',
+                thalach ~ 'Maximum HR',
+                exang ~ 'Exercise induced angina',
+                oldpeak ~ 'ST depression induced by exercise',
+                slope ~ 'Slope of peak exercise ST segment',
+                ca ~ '# major vessels seen on fluoroscopy',
+                thal ~ 'Stress test results'
+              ),
+              statistic = list(all_continuous() ~ "{mean} ({sd})",all_categorical()~"{n} / {N} ({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table()%>%
+  bold(i = 1, part = 'header')
+
+```
+
+## Correlation Plot of continuous variables
+
+```{r corr, fig.width = 12, fig.height = 8}
+ggpairs(heart_data, 
+        columns = c("age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"),
+        ggplot2::aes(color = target))
+```
+
+
+## Logistic Regression (5-fold CV)
+```{r}
+
+# 2) Logistic regression, threshold p>=0.5 --> target = 1
+## Create K=5 folds
+tt_indicies <- createFolds(y=heart_data$target, k=5)
+
+set.seed(12)
+
+## Create lists to hold results
+log_fit_hd <- list()
+log_est_prob_hd <- list()
+log_pred_class_hd <- list()
+log_overall_accuracy_hd <- list()
+log_overall_error_hd <- list()
+log_per_class_error_rates_hd <- list()
+log_per_class_accuracy_rates_hd <- list()
+log_per_class_n_hd <- list()
+
+ for(f in 1:length(tt_indicies)){
+    heart_data_train <- heart_data[-tt_indicies[[f]],]
+    heart_data_test <- heart_data[tt_indicies[[f]],]
+  
+    log_fit_hd[[f]] <- glm(target ~., 
+                             data = heart_data_train, family = "binomial")
+        
+    log_est_prob_hd[[f]] <- predict(log_fit_hd[[f]], newdata= heart_data_test, type = "response")
+    heart_data_test$log_est_prob <- log_est_prob_hd[[f]]
+    
+    heart_data_test <- heart_data_test %>%
+      mutate(log_pred_class = 
+           relevel(factor(ifelse(log_est_prob<0.5, "0", "1")),
+                   ref = "0"))
+    log_pred_class_hd[[f]] <- heart_data_test$log_pred_class
+    log_overall_accuracy_hd[[f]] <- mean(heart_data_test$target==heart_data_test$log_pred_class)
+    log_overall_error_hd[[f]] <- 1-log_overall_accuracy_hd[[f]]
+    
+  
+   # Calculate per class accuracy rates
+    log_per_class_error_rates_hd[[f]] <- rep(NA, length(levels(heart_data_test$target)))
+    log_per_class_accuracy_rates_hd[[f]] <- rep(NA, length(levels(heart_data_test$target)))
+    for(i in 1:length(log_per_class_error_rates_hd[[f]])){
+      log_per_class_accuracy_rates_hd[[f]][i] <- 
+      heart_data_test %>%
+        filter(target==levels(target)[i]) %>%
+        summarise(accuracy = sum(log_pred_class==levels(target)[i])/n()) %>%
+        unlist()
+      log_per_class_error_rates_hd[[f]][i] <- 1-log_per_class_accuracy_rates_hd[[f]][i]
+    }
+
+  }
+
+  
+log_error_hd_df <- data.frame(do.call("rbind", log_per_class_error_rates_hd))
+log_overallerror_hd_df <- data.frame(do.call("rbind", log_overall_error_hd))
+
+## Compute mean and SE for each measure to get CV mean/SE
+log_hd_mean <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=mean)
+log_hd_sd <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=sd)
+
+names(log_hd_mean) <- c("CV error rate")
+names(log_hd_sd) <- c("CV standard error")
+
+
+## Print visually appealing flex tables with 5-fold CV error rate & standard error
+as.data.frame(log_hd_mean) %>% flextable() %>% set_header_labels(log_hd_mean='CV error rate') %>% bold(part='header')
+as.data.frame(log_hd_sd) %>% flextable() %>% set_header_labels(log_hd_sd='CV standard error') %>% bold(part='header')
+
+
+# 2) Logistic regression; choose threshold using pROC
+## Create K=5 folds
+tt_indicies <- createFolds(y=heart_data$target, k=5)
+
+set.seed(12)
+
+## Create lists to hold results
+log_fit_hd <- list()
+log_est_prob_hd <- list()
+log_roc_obj_hd <- list()
+log_best_thresh_data <- list()
+log_pred_class_hd <- list()
+log_overall_accuracy_hd <- list()
+log_overall_error_hd <- list()
+log_per_class_error_rates_hd <- list()
+log_per_class_accuracy_rates_hd <- list()
+log_per_class_n_hd <- list()
+
+ for(f in 1:length(tt_indicies)){
+    heart_data_train <- heart_data[-tt_indicies[[f]],]
+    heart_data_test <- heart_data[tt_indicies[[f]],]
+  
+    log_fit_hd[[f]] <- glm(target ~., 
+                             data = heart_data_train, family = "binomial")
+        
+    log_est_prob_hd[[f]] <- predict(log_fit_hd[[f]], newdata= heart_data_test, type = "response")
+    heart_data_test$log_est_prob <- log_est_prob_hd[[f]]
+    
+    ##Create ROC object to determine 'best' threshold:
+    log_roc_obj_hd[[f]] <- roc(response = heart_data_test$target, 
+      predictor = heart_data_test$log_est_prob)
+    
+    log_best_thresh_data[[f]] <- 
+      data.frame(coords(log_roc_obj_hd[[f]], x="best", best.method = c("youden", "closest.topleft")))
+    
+    
+    heart_data_test <- heart_data_test %>%
+      mutate(log_pred_class = 
+           relevel(factor(ifelse(log_est_prob<log_best_thresh_data[[f]]$threshold, "0", "1")),
+                   ref = "0"))
+    log_pred_class_hd[[f]] <- heart_data_test$log_pred_class
+    log_overall_accuracy_hd[[f]] <- mean(heart_data_test$target==heart_data_test$log_pred_class)
+    log_overall_error_hd[[f]] <- 1-log_overall_accuracy_hd[[f]]
+    
+  
+   # Calculate per class accuracy rates
+    log_per_class_error_rates_hd[[f]] <- rep(NA, length(levels(heart_data_test$target)))
+    log_per_class_accuracy_rates_hd[[f]] <- rep(NA, length(levels(heart_data_test$target)))
+    for(i in 1:length(log_per_class_error_rates_hd[[f]])){
+      log_per_class_accuracy_rates_hd[[f]][i] <- 
+      heart_data_test %>%
+        filter(target==levels(target)[i]) %>%
+        summarise(accuracy = sum(log_pred_class==levels(target)[i])/n()) %>%
+        unlist()
+      log_per_class_error_rates_hd[[f]][i] <- 1-log_per_class_accuracy_rates_hd[[f]][i]
+    }
+
+  }
+
+  
+log_error_hd_df <- data.frame(do.call("rbind", log_per_class_error_rates_hd))
+log_overallerror_hd_df <- data.frame(do.call("rbind", log_overall_error_hd))
+
+## Compute mean and SE for each measure to get CV mean/SE
+log_hd_mean <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=mean)
+log_hd_sd <- log_overallerror_hd_df %>%
+  apply(MARGIN = 2, FUN=sd)
+
+names(log_hd_mean) <- c("CV error rate")
+names(log_hd_sd) <- c("CV standard error")
+
+## Print visually appealing flex tables with 5-fold CV error rate & standard error
+as.data.frame(log_hd_mean) %>% flextable() %>% set_header_labels(log_hd_mean='CV error rate') %>% bold(part='header')
+as.data.frame(log_hd_sd) %>% flextable() %>% set_header_labels(log_hd_sd='CV standard error') %>% bold(part='header')
+
+```
+

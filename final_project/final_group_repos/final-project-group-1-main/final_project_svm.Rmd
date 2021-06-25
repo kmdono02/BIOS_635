@@ -1,0 +1,131 @@
+---
+title: "Final Project_SVM"
+subtitle: "BIOS 635"
+author: "Liyuan Zhou"
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, include = TRUE, fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+library(GGally)
+library(e1071)
+library(DMwR)
+```
+
+## Dataset
+
+```{r}
+stroke_data <- read_csv("/Users/lillianz/Dropbox/2021 Spring/BIOS635/group project/final-project-group-1-main/healthcare-dataset-stroke-data.csv", na = c("N/A","NA","", "Unknown")) %>%
+  select(-id) %>%
+  drop_na()
+
+stroke_data <- stroke_data %>%
+  mutate(stroke = as.factor(stroke),
+         male = ifelse(gender=="Male",1,0),
+         ever_married = ifelse(ever_married=="Yes",1,0), 
+         job_child = ifelse(work_type=="children",1,0), 
+         job_gov = ifelse(work_type=="Govt_job",1,0),
+         job_never = ifelse(work_type=="Never_worked",1,0), 
+         job_private = ifelse(work_type=="Private",1,0),
+         job_selfempl = ifelse(work_type=="Self-employed",1,0),
+         rural = ifelse(Residence_type=="Rural",1,0),
+         ever_smoked = ifelse(smoking_status %in% c("formerly smoked", "smokes"), 1, 0)) %>%
+  select(-c(gender, work_type, Residence_type, smoking_status))
+
+stroke_data <- stroke_data %>% mutate_at(c("hypertension",
+                                           "heart_disease",
+                                           "ever_married",
+                                           "stroke",
+                                           "male",
+                                           "job_child",
+                                           "job_gov",
+                                           "job_never",
+                                           "job_private",
+                                           "job_selfempl",
+                                           "rural",
+                                           "ever_smoked"),
+                                         function(x) as.factor(x))
+```
+
+## SVM 
+
+```{r}
+set.seed(12)
+folds <- createFolds(y=stroke_data$stroke, k=10)
+error_per_fold_linear <- list()
+#error_per_fold_poly <- list()
+
+for (i in 1:length(folds)){
+  stroke_train_pre <- stroke_data[-folds[[i]],]
+  stroke_test <- stroke_data[folds[[i]],]
+  
+  stroke_train <- SMOTE(stroke~., data=stroke_train_pre, perc.under = 150)
+
+########## linear kernal ############
+  tune_svm_linear <- 
+    tune(svm, stroke~., data=stroke_train, kernel ="linear",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:5,
+                       epsilon = seq(from=0.1, to=0.5, by=0.1)))
+  
+  # Get best model
+  svm_tuned_linear <- tune_svm_linear$best.model
+  #svm_tuned_linear <- svm(stroke~.,data = stroke_train, kernel="linear")
+  stroke_test$predict_svm_linear <- predict(svm_tuned_linear, newdata=stroke_test,
+                                   type="response")
+  # Store MSE
+  error_per_fold_linear[[i]] <- confusionMatrix(data = stroke_test$predict_svm_linear,
+                                    reference = stroke_test$stroke)$byClass
+
+
+}
+
+error_all_folds_linear <- do.call("rbind", error_per_fold_linear)
+#error_all_folds_poly <- do.call("rbind", error_per_fold_poly)
+
+svm_cv_results_linear <- 
+  data.frame("Method"="svm",
+             "CV_MSE"=apply(error_all_folds_linear[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds_linear[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+#svm_cv_results_poly <- data.frame("Method"="svm",
+             "CV_MSE"=apply(error_all_folds_poly[,c("Sensitivity", "Specificity")], 
+                                   MARGIN = 2, FUN = mean),
+             "CV_MSE_SE"=apply(error_all_folds_poly[,c("Sensitivity", 
+                                                         "Specificity")], 
+                                      MARGIN = 2, FUN = sd)) %>%
+  rownames_to_column(var="Measure")
+
+#svm_cv_results <- rbind(svm_cv_results_linear,svm_cv_results_poly)
+
+```
+
+## Backup for polynomial kernal
+```{r}
+######## polynomial kernal ##########
+  tune_svm_poly <- 
+    tune(svm, stroke~., data=stroke_train, kernel ="polynomial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:5,
+                       d = 1:5))
+  
+  # Get best model
+  svm_tuned_poly <- tune_svm_poly$best.model
+  stroke_test$predict_svm_poly <- predict(svm_tuned_poly, newdata=stroke_test,
+                                   type="response")
+  # Store MSE
+  error_per_fold_poly[[i]] <- confusionMatrix(data = stroke_test$predict_svm_poly,
+                                    reference = stroke_test$stroke)$byClass
+```

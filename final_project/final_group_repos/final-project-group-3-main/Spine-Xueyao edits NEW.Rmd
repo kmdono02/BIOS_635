@@ -1,0 +1,336 @@
+---
+title: "635_group3"
+author: "Group3"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+
+
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+library(GGally)
+library(ggpubr)
+library(e1071)
+library(randomForest)
+library(pROC)
+library(nnet)
+```
+
+Each of us may need to change the working directory each time we run scripts.
+
+Xueyao's WD: "C:/Users/wxycd/Desktop/UNC study/4th Semester/635/Project_final"
+
+Ally's WD: "~/Documents/UNC BIOS MS PROGRAM/BIOS 635/final-project-group-3-main"
+
+Liam WD: "C:/Users/liamp/School Notes/2021 Spring (Junior)/BIOS 635/final-project-group-3-main"
+
+```{r setWD and read data}
+#feel free to change to your own data folder
+setwd("C:/Users/liamp/School Notes/2021 Spring (Junior)/BIOS 635/final-project-group-3-main")
+spine <- read_csv("data/column_3C_weka.csv") %>%
+  mutate(class=ifelse(class=="Spondylolisthesis","Spondyl.",class)) %>%
+  mutate(class = factor(class)) 
+```
+
+## Data exploration
+
+```{r data exploration}
+head(spine)
+summary(spine)
+sum(is.na(spine)) # No missing data in dataset
+```
+```{r}
+acc_boxplot <- function(data) {
+  acc_bp <- data %>% ggplot(aes(x=Prediction,y=Accuracy,fill=Prediction))+
+      geom_boxplot()+
+      facet_wrap(~Actual)
+    
+    print(acc_bp)
+}
+```
+
+Boxplot of 6 variables, do we need to clear out the outliers? NO!
+```{r boxplot}
+plot_list <- list()
+continuous_variables <- names(spine)[1:6]
+for(i in 1:length(continuous_variables)){
+  plot_list[[i]] <- 
+    ggplot(data=spine, 
+       mapping=aes_string(x="class", y=continuous_variables[i], fill="class"))+
+    geom_boxplot(outlier.color = "red")+
+    labs(y="Distribution of continuous variables", x="Spine Class")+
+    theme_bw()+
+    theme(legend.position = "none") +
+    annotate("text",  x= 0, y = Inf, label = continuous_variables[i], 
+             vjust=1, hjust=0, size = 5)
+}
+ggarrange(plotlist = plot_list, 
+          ncol = 2
+          )
+```
+```{r correlation plot and distribution plot}
+library(corrplot)
+
+spine%>%
+  select(-class) %>%
+  cor() %>%
+  corrplot(method="number",
+           order = "AOE")
+
+
+##Scatterplots
+ggpairs(spine, 
+        ggplot2::aes(colour=class))
+```
+Summary table
+```{r Summary table}
+spine %>%
+    tbl_summary(
+            by=class,
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n} ({p}%)")
+            ) %>%
+  add_n() %>%
+  add_p(test = list(all_continuous() ~ "aov")) %>%
+  as_flex_table() %>%
+  bold(part = "header")
+```
+
+##Model
+Which two or more models should we choose?
+```{r model1}
+#RANDOM FOREST: We can change values in the code, but this is the stencil that should work for producing errors##
+
+#function to tune parameter 
+tuning <- function(dataset, trees, outcome) {
+    reg_rf_preds_tune <- list() 
+    reg_rf_oob_error <- list()
+  
+    p <- dim(dataset)[2]-1
+    pred_m <- c(ceiling(p/2), ceiling(p/3), ceiling(sqrt(p)), p)
+    
+
+    for(i in 1:length(pred_m)){
+      reg_rf_preds_tune[[i]] <- list()
+      reg_rf_oob_error[[i]] <- list()
+      for (s in 1:length(trees)){
+        reg_rf_preds_tune[[i]][[s]] <- randomForest(as.formula(paste0(outcome, "~.")), 
+                                                    data = dataset,
+                                                    ntree=trees[s], mtry=pred_m[i])
+        reg_rf_oob_error[[i]][[s]] <- data.frame("preds_m"=pred_m[i],
+                                                "trees" = trees[s],
+                                     "oob_error_rate"=reg_rf_preds_tune[[i]][[s]][[4]][trees[s]])
+      }
+
+}
+        list <- unlist(reg_rf_oob_error, recursive = FALSE)
+        reg_rf_oob_error_df <- do.call("rbind", list)
+        
+        best <- which(reg_rf_oob_error_df$oob_error_rate==min(reg_rf_oob_error_df$oob_error_rate))
+        out_tree <- reg_rf_oob_error_df$trees[best]
+        out_m <- reg_rf_oob_error_df$preds_m[best]
+        out <- list(out_tree, out_m)
+  
+  return(out)
+}
+
+
+set.seed(2)
+individualfolds<- createFolds(y=spine$class, k=5)
+per_class_accuracy <- list()
+pred_table <- list()
+auc_list <- c()
+acc_by_class <- data.frame()
+
+    for(i in 1:length(individualfolds)){
+      spine_train <- spine[-individualfolds[[i]],]
+      spine_test <- spine[individualfolds[[i]],]
+      
+      
+      tunedparameter <- tuning(dataset = spine_train, trees = c(50,250,500),
+                               outcome = "class")
+      reg_rf <- randomForest(class~., spine_train,
+                       ntree=tunedparameter[[1]][1], 
+                       mtry=tunedparameter[[2]][1])
+      
+      varImpPlot(reg_rf,type=2)
+      
+      # Evaluate on test set
+      spine_test$rf_predict <- predict(reg_rf, newdata = spine_test)
+      
+      probs <- as.data.frame(predict(reg_rf, spine_test, type="prob"))
+
+      roc_cur <- multiclass.roc(response = spine_test$class, predictor=probs)
+      
+      auc_list <- append(auc_list,roc_cur$auc)
+      
+      pred_table[[i]] <- table(spine_test$class, spine_test$rf_predict)
+      pred_table[[i]] <- prop.table(pred_table[[i]],1)
+      
+      acc_df <- as.data.frame.matrix(pred_table[[i]])
+      
+      for(a in 1:ncol(acc_df)) {
+        for(b in 1:length(acc_df)) {
+          temp <- data.frame("Accuracy"=acc_df[[a]][[b]],"Actual"=rownames(acc_df)[[b]],"Prediction"=colnames(acc_df)[[a]])
+          acc_by_class <- rbind(acc_by_class,temp)
+        }
+      }
+     
+      #Per-class accuracies
+     per_class_accuracy[[i]] <- rep(NA, length(levels(spine_test$class)))
+      for(l in 1:length(per_class_accuracy[[i]])){
+        per_class_accuracy[[i]][l] <- 
+          spine_test %>%
+          filter(class==levels(class)[l]) %>%
+          summarise(error = 1-sum(rf_predict==levels(class)[l])/n()) %>%
+          unlist()
+          
+        names(per_class_accuracy[[i]])[l] <- 
+          paste0("error_", levels(spine_test$class)[l])
+      }
+  
+    }
+
+   print(paste("Random Forests"))
+   acc_boxplot(acc_by_class)
+
+   print(paste("AUC: ",mean(auc_list)))
+
+   data_set_list  <- as.data.frame(t(do.call("rbind", per_class_accuracy) %>%
+      apply(MARGIN=2, FUN=mean, na.rm=TRUE)))
+   
+    data_set_list %>%
+      flextable() %>% 
+      colformat_double(digits=3) %>%
+      add_header_lines(values="CV ERRORS PER CLASS - Random Forest")
+    
+   data_set_list_se <- as.data.frame(t(do.call("rbind", per_class_accuracy) %>%
+      apply(MARGIN=2, FUN=sd, na.rm=TRUE))) 
+   
+    data_set_list_se %>%
+      flextable() %>% 
+      colformat_double(digits=3) %>%
+      add_header_lines(values="CV ERROR SE PER CLASS - Random Forest")
+
+
+```
+
+```{r model2}
+# SVM model with function
+set.seed(2)
+
+SVM <- function(dataset, kfolds, kernel, outcome, ranges){
+individualfolds<- createFolds(y=dataset[[outcome]], k=kfolds)
+per_class_accuracy <- list()
+pred_table <- list()
+auc_list <- c()
+
+acc_by_class <- data.frame()
+
+    for(i in 1:length(individualfolds)){
+      train <- dataset[-individualfolds[[i]],]
+      test <- dataset[individualfolds[[i]],]
+      
+    # Tune
+      svm_tune <- tune(svm, as.formula(paste0(outcome, "~.")), data=train, kernel = kernel, 
+                 ranges = ranges, probability = TRUE)
+
+    # Choose best model
+      best_svm <- svm_tune$best.model
+      
+    # Now predict
+      test$pred_target <- predict(best_svm, newdata = test)
+      probs <- predict(best_svm, test, probability=TRUE)
+      
+      roc_cur <- multiclass.roc(response = test$class, predictor=attr(probs,"probabilities"))
+      
+      auc_list <- append(auc_list,roc_cur$auc)
+      
+      pred_table[[i]] <- table(test$class, test$pred_target)
+      pred_table[[i]] <- prop.table(pred_table[[i]],1)
+      
+      acc_df <- as.data.frame.matrix(pred_table[[i]])
+      
+      for(a in 1:ncol(acc_df)) {
+        for(b in 1:length(acc_df)) {
+          temp <- data.frame("Accuracy"=acc_df[[a]][[b]],"Actual"=rownames(acc_df)[[b]],"Prediction"=colnames(acc_df)[[a]])
+          acc_by_class <- rbind(acc_by_class,temp)
+        }
+      }
+      
+    # Per Class Accuracy
+      per_class_accuracy[[i]] <- rep(NA, length(levels(test[[outcome]])))
+      for(l in 1:length(per_class_accuracy[[i]])){
+        per_class_accuracy[[i]][l] <- 
+          test %>%
+          filter(test[[outcome]]==levels(test[[outcome]])[l]) %>%
+          summarise(error = 1-sum(pred_target==levels(test[[outcome]])[l])/n()) %>%
+          unlist()
+          
+        names(per_class_accuracy[[i]])[l] <- 
+          paste0("error_", levels(test[[outcome]])[l])
+      }
+      
+    }
+
+    print(paste("SVM kernel: ",kernel))
+    acc_boxplot(acc_by_class)
+    
+    print(paste("AUC: ",mean(auc_list)))
+
+   data_set_list  <- as.data.frame(t(do.call("rbind", per_class_accuracy) %>%
+      apply(MARGIN=2, FUN=mean, na.rm=TRUE)))
+   
+    show <- data_set_list %>%
+      flextable() %>% 
+      colformat_double(digits=3) %>%
+      add_header_lines(values="CV ERRORS PER CLASS - SVM")
+    
+   data_set_list_se <- as.data.frame(t(do.call("rbind", per_class_accuracy) %>%
+      apply(MARGIN=2, FUN=sd, na.rm=TRUE))) 
+   
+    show_se <- data_set_list_se %>%
+      flextable() %>% 
+      colformat_double(digits=3) %>%
+      add_header_lines(values="CV ERROR SE PER CLASS - SVM")
+    
+    list <- list(best_svm,show,show_se)
+  return(list)
+}
+
+
+SVM(dataset=spine, kfolds = 5, 
+    outcome="class", kernel="linear",
+    ranges= list(epsilon=seq(0,0.5,by = 0.1), cost=1:5,gamma = c(0.001, 0.05, 0.1)))
+
+SVM(dataset=spine, kfolds = 5,  
+    outcome="class", kernel="radial",
+    ranges= list(epsilon=seq(0,0.5,by = 0.1), cost=1:5, gamma=c(0.001, 0.05, 0.1)))
+```
+```{r}
+#logistic regression model purely to get standard errors of features and check for multicoolinearity
+spine$class2 <- relevel(spine$class, ref = "Normal")
+
+s_split <- createDataPartition(spine$class, p=0.6, list = FALSE)
+s_train <- spine[s_split,]
+s_test <- spine[-s_split,]
+
+glm.fit=multinom(class2~pelvic_incidence+pelvic_tilt+lumbar_lordosis_angle+sacral_slope+pelvic_radius+degree_spondylolisthesis, data=s_train)
+summary(glm.fit)
+#Prediction
+s_test$pred_class<-predict(glm.fit, newdata=s_test)
+
+s_test <- s_test %>% mutate(class = as.character(class)) %>%
+  mutate(pred_class = as.character(pred_class))
+
+#print(s_test)
+
+mean(s_test$pred_class == s_test$class)
+sd(s_test$pred_class == s_test$class)
+
+```

@@ -1,0 +1,49 @@
+Cases per capita - full lasso model vs linear regression model ,,,,
+Lasso,,,Linear,
+Name,Coefficient,,Name,Coefficient
+(Intercept)   ,24.425406,,(Intercept),-5667.51
+Animal fats  ,-9.383192,,`Alcoholic Beverages`,-71.48
+Eggs  ,-5.33056,,`Animal Products`,169.03
+"Fish, Seafood   ",10.335366,,`Animal fats`,-72.39
+Fruits - Excluding Wine   ,11.806396,,`Cereals - Excluding Beer`,-74.77
+Meat    ,7.416575,,Eggs                        ,-119.23
+Offals ,-239.493382,,"`Fish, Seafood`  ",-38.6
+Pulses    ,2.196089,,Fruits - Excluding Wine,-59.58
+Starchy Roots   ,-1.835039,,Meat,-38.45
+Stimulants  ,389.774437,,Milk - Excluding Butter,-52.92
+Sugar & Sweeteners    ,3.691359,,Offals ,-399.37
+Vegetable Oils  ,-14.104946,,Oilcrops ,-82.91
+Vegetables  ,-11.087194,,Pulses,-65.47
+,,,`Starchy Roots` ,-80.12
+,,,Stimulants,329.87
+,,,`Sugar Crops`,-171.6
+,,,`Sugar & Sweeteners`,-72.81
+,,,Treenuts,-99.76
+,,,`Vegetal Products`,188.86
+,,,`Vegetable Oils` ,-89.66
+,,,Vegetables,-100.42
+,,,,
+Deaths per capita - full lasso model vs linear regression model ,,,,
+Lasso,,,Linear,
+Name,Coefficient,,Name,Coefficient
+(Intercept)   ,0.2404706,,(Intercept),-732.0114
+Alcoholic Beverages,0.15593949,,`Alcoholic Beverages`,-0.6299
+Eggs  ,-0.55115069,,`Animal Products`,16.3693
+"Fish, Seafood   ",-0.02415531,,`Animal fats`,-1.6892
+Fruits - Excluding Wine   ,0.16398568,,`Cereals - Excluding Beer`,-0.8398
+Meat    ,0.00368985,,Eggs                        ,-2.7276
+Offals ,-2.30234093,,"`Fish, Seafood`  ",-2.2154
+Starchy Roots   ,-0.04274633,,Fruits - Excluding Wine,-0.6183
+Stimulants  ,4.75033976,,Meat,-1.5949
+Sugar Crops,-0.16882224,,Milk - Excluding Butter,-1.8033
+Sugar & Sweeteners    ,0.10392832,,Offals ,-5.6984
+Treenuts,-0.36849688,,Oilcrops ,-0.8306
+Vegetable Oils,-0.14564583,,Pulses,-0.7901
+,,,`Starchy Roots` ,-0.9142
+,,,Stimulants,4.1193
+,,,`Sugar Crops`,-2.2745
+,,,`Sugar & Sweeteners`,-0.7438
+,,,Treenuts,-1.5434
+,,,`Vegetal Products`,15.4878
+,,,`Vegetable Oils` ,-1.0139
+,,,Vegetables,-0.7851

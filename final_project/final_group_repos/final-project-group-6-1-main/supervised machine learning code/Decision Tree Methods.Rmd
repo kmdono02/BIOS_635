@@ -1,0 +1,141 @@
+---
+title: "Decision Tree Methods"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls(all.names = TRUE)) # clears global environ.
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+Using decision tree based methods (random forest and SVM) to investigate affect of clustered food groups on COVID-19 confirmed cases and deaths from the week of February 6, 2021.
+
+
+```{r}
+library(tidyverse)
+library(rlang)
+library(reshape)
+library(janitor)
+library(caret)
+library(factoextra)
+library(gtsummary)
+library(flextable)
+library(rpart)
+library(randomForest)
+```
+```{r}
+#setting working directory
+setwd('/Users/alexis/Documents/BIOS 635/Final Project')
+
+#reading in data
+food_data = read_csv("Food_Supply_kcal_Data.csv") %>%
+  #first removing variables that aren't of interest (ie. not relevant, not a food group, or are unlikely to have an real impact)
+  select(-Recovered, -Active, -`Unit (all except Population)`, -Obesity, -Undernourished, -Miscellaneous, -Spices) %>%
+  drop_na() %>%
+  #cases are per 100,000,000 people
+  mutate(Confirmed_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #now variables used to create per capita variables and animal products which was highly correlated
+  select(-c(Population, Confirmed, Deaths, `Animal Products`))  %>%
+  #rpart doesn't understand nonstandard variable names
+  dplyr::rename(`Aquatic Products` = `Aquatic Products, Other`, Cereals = `Cereals - Excluding Beer`, Fish = `Fish, Seafood`, Fruits = `Fruits - Excluding Wine`,  Milk = `Milk - Excluding Butter`, `Sugar and Sweetners` = `Sugar & Sweeteners`) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = ifelse(Confirmed_per_capita > median(Confirmed_per_capita), "Above", "Below"), Deaths_vs_median = ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below")) 
+```
+
+First, performing a pruned CART decision tree method, continuously. 
+
+``` {r}
+#setting for reproducibility
+set.seed(12)
+
+#splitting data into training and testing sets
+CART = function(df, outcome, pred_outcome, method){
+  colnames(df) <- make.names(colnames(df))
+  food_data_index = createFolds(df[[outcome]], k = 10) #10 fold CV
+  errors = data.frame()
+  for (i in 1:length(food_data_index)){
+    food_train = food_data[-food_data_index[[i]],]
+    food_test = food_data[food_data_index[[i]],]
+  
+    #now pruning the tree (in this method a new alpha is used everytime)
+    reg_tree_pruned <- train(as.formula(paste0(outcome, "~.")), 
+                             data = food_train, method = "rpart", trControl = trainControl("cv", number = 10), tuneLength = 10)
+    
+    #predicting on test set
+    food_test[[pred_outcome]] = predict(reg_tree_pruned, newdata = food_test)
+    
+    #calculating MSE
+    error_values = postResample(food_test[[pred_outcome]], food_test[[outcome]])
+  
+    #adding values to df
+    errors = rbind(errors, c(method, error_values[1]^2))
+  }
+  colnames(errors) = c("Method", "MSE")
+  #taking averages/sd by method
+  errors = errors %>%
+   summarize(`CV Error` = mean(MSE), `Std Error` = sd(MSE))
+  
+  return(reg_tree_pruned)
+}
+
+#calling function 
+cases_CART_errors = CART(food_data[,1:22], "Confirmed_per_capita", "pred_Confirmed_cases", "Pruned CART")
+
+cases_CART_errors %>%
+  flextable()
+```
+Now dichotomously. 
+
+[insert code]
+
+Next, performing random forest.  
+```{r}
+# Create grid
+total_p <- dim(food_data[,1:22])[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"= c(total_p/2, sqrt(total_p), total_p))
+tt_indices <- createFolds(y = food_data[,1:22]$Confirmed_per_capita, k = 5) #5 fold CV
+test_results <- list()
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  food_train <- food_data[,1:22][-tt_indices[[i]],]
+  food_test <- food_data[,1:22][tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(Confirmed_per_capita~., data = food_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$mse[tuning_grid$trees[j]]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "mse" = tune_results)
+  best_tune <- train_tune_results[which(tune_results == min(tune_results)),]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(Confirmed_per_capita~., data = food_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  test_predict <- predict(rf_fit, newdata = food_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, food_test$Confirmed_per_capita)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+
+```

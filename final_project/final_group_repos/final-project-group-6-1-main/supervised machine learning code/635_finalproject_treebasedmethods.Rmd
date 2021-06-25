@@ -1,0 +1,584 @@
+---
+title: "635_treebasedmethods"
+author: "Eileen Yang"
+date: "4/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(randomForest)
+library(gtsummary)
+library(flextable)
+library(e1071)
+```
+
+
+Read in data
+```{r}
+
+food <-  read_csv("/Users/eileenyang/Desktop/R/BIOS 635/final-project-group-6-1-main/data/Food_Supply_kcal_Data.csv") %>%
+  #first removing variables that aren't of interest (ie. not relevant, not a food group, or are unlikely to have an real impact)
+  select(-Recovered, -Active, -`Unit (all except Population)`, -Obesity, -Undernourished, -Miscellaneous, -Spices, -Country) %>%
+  drop_na() %>%
+  #cases are per 100,000,000 people
+  mutate(Cases_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = ifelse(Cases_per_capita > median(Cases_per_capita), "Above", "Below"), Deaths_vs_median = ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below"))
+
+food$Cases_vs_median <- as.factor(food$Cases_vs_median)
+food$Deaths_vs_median <- as.factor(food$Deaths_vs_median)
+
+food <- select(food,  -c("Confirmed","Deaths", "Population"))
+
+food_cases <- select(food,  -c("Deaths_per_capita","Deaths_vs_median"))
+food_deaths <- select(food,  -c("Cases_per_capita","Cases_vs_median"))
+
+# cases dataset with collinear vars removed
+food_cases2 <- select(food_cases, -c("Cases_vs_median","Aquatic Products, Other", "Animal Products","Vegetal Products"))
+colnames(food_cases2) <- make.names(colnames(food_cases2))
+
+
+# deaths dataset with collinear vars removed
+food_deaths2 <- select(food_deaths, -c("Deaths_vs_median","Aquatic Products, Other", "Animal Products","Vegetal Products"))
+colnames(food_deaths2) <- make.names(colnames(food_deaths2))
+
+# cases dataset without collinear vars removed
+food_cases2_full <- select(food_cases, -c("Cases_vs_median","Aquatic Products, Other"))
+
+# deaths dataset without collinear vars removed
+food_deaths2_full <- select(food_deaths, -c("Deaths_vs_median","Aquatic Products, Other"))
+```
+
+# Tree Methods for Cases (continuous outcome)
+
+## Single Decision Tree (CART)
+
+First, visualize the tree using all the data (collinear variables removed)
+```{r, fig.width=6, fig.height=5}
+#cart_fitx <- rpart(Cases_per_capita~., data=food_cases2_full)
+#par(xpd = NA) # otherwise on some devices the text is clipped
+#plot(cart_fitx)
+#text(cart_fitx, digits=3)
+#print(cart_fitx, digits=3)
+set.seed(2)
+cart_fit_test <- train(Cases_per_capita~., data=food_cases2, method="rpart",trControl = trainControl("cv", number = 10), tuneLength =10)
+plot(cart_fit_test)
+
+par(xpd = NA) # Avoid clipping the text in some device
+plot(cart_fit_test$finalModel)
+text(cart_fit_test$finalModel,  digits = 3)
+print(cart_fit_test, digits=3)
+cart_fit_test$bestTune
+```
+
+Next, try 10 fold CV (collinear variables removed)
+```{r}
+# Create folds
+fold_k <- 10
+tt_indices <- createFolds(y = food_cases2$Cases_per_capita, k=fold_k)
+test_results <- list()
+
+for(i in 1:fold_k){
+  # Create train, test sets
+  foodcases_train <- food_cases2[-tt_indices[[i]],]
+  foodcases_test <- food_cases2[tt_indices[[i]],]
+  
+  # Fit CART with tuning
+  cart_fit <- train(Cases_per_capita~., data=foodcases_train, method="rpart", tuneLength =10)
+  
+  # Test on test data
+  test_predict <- predict(cart_fit, newdata=foodcases_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, foodcases_test$Cases_per_capita)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_cart <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_cart, 2, mean)
+cv_error_se <- apply(test_results_all_cart, 2, sd)
+
+print("CV error = ") 
+cv_error
+print("CV error SE = ") 
+cv_error_se
+
+
+```
+
+
+
+## Random Forest Regression - 10 fold CV
+```{r}
+# Create grid
+total_p <- dim(food_cases2)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+
+test_results <- list()
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_cases2$Cases_per_capita, k=fold_k)
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  foodcases_train <- food_cases2[-tt_indices[[i]],]
+  foodcases_test <- food_cases2[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(Cases_per_capita~., data=foodcases_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$mse[tuning_grid$trees[j]]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "mse"=tune_results)
+  best_tune <- train_tune_results[which(tune_results==min(tune_results)),]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(Cases_per_capita~., data=foodcases_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  test_predict <- predict(rf_fit, newdata=foodcases_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, food_cases2$Cases_per_capita)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+cv_error
+cv_error_se
+```
+
+
+## SVR - 10 fold CV
+
+Linear kernel
+```{r}
+set.seed(12)
+
+# 10-fold CV
+fold_k <- 10
+tt_indices <- createFolds(y = food_cases2$Cases_per_capita, k=fold_k)
+mse_per_fold <- list()
+mse_per_fold_regress <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_cases2[-tt_indices[[i]],]
+  test_data <- food_cases2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Cases_per_capita~., data=train_data, kernel ="linear",
+         ranges = list(gamma = 0.035, 
+                       cost = 1:5,
+                       epsilon = seq(from=0.1, to=0.5, by=0.1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+  lm_fit <- lm(Cases_per_capita~., data=train_data)
+  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Cases_per_capita)
+  mse_per_fold_regress[[i]] <- postResample(pred = predict_lm,
+                                    obs = test_data$Cases_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+mse_all_folds_regress <- do.call("rbind", mse_per_fold_regress)
+mse_all_folds_regress <- cbind(mse_all_folds_regress, 
+                               "MSE"=(mse_all_folds_regress[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Do same for regression
+regress_cv_results <- data.frame("Method"="lm",
+                    "CV_MSE"=mean(mse_all_folds_regress[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds_regress[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+all_results <- rbind(svm_cv_results, regress_cv_results)
+flextable(all_results)
+```
+
+Polynomial kernel
+```{r}
+set.seed(11)
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_cases2$Cases_per_capita, k=fold_k)
+mse_per_fold <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_cases2[-tt_indices[[i]],]
+  test_data <- food_cases2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Cases_per_capita~., data=train_data, kernel="polynomial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       d=c(2,3)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+#  lm_fit <- lm(Deaths_per_capita~., data=train_data)
+#  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Cases_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+svm_cv_results
+flextable(svm_cv_results)
+
+```
+
+
+Radial kernel
+```{r}
+# 10-fold CV
+set.seed(12)
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_cases2$Cases_per_capita, k=fold_k)
+mse_per_fold <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_cases2[-tt_indices[[i]],]
+  test_data <- food_cases2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Cases_per_capita~., data=train_data, kernel="radial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       epsilon = c(0.1, 0.5, 1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+#  lm_fit <- lm(Cases_per_capita~., data=train_data)
+#  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Cases_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+flextable(svm_cv_results)
+```
+
+***
+
+
+# Tree Methods for Deaths (continuous outcome)
+
+## Single Decision Tree (CART)
+
+First, visualize the tree using all the data (collinear variables NOT removed)
+```{r, fig.width=6, fig.height=5}
+#cart_fitx <- rpart(Deaths_per_capita~., data=food_deaths2_full)
+#par(xpd = NA) # otherwise on some devices the text is clipped
+#plot(cart_fitx)
+#text(cart_fitx, digits=3)
+#print(cart_fitx, digits=3)
+set.seed(3)
+cart_fit_test <- train(Deaths_per_capita~., data=food_deaths2, method="rpart",trControl = trainControl("cv", number = 10), tuneLength =10)
+plot(cart_fit_test)
+
+par(xpd = NA) # Avoid clipping the text in some device
+plot(cart_fit_test$finalModel)
+text(cart_fit_test$finalModel,  digits = 3)
+print(cart_fit_test, digits=3)
+cart_fit_test$bestTune
+```
+
+Next, try 10 fold CV (collinear variables removed)
+```{r}
+# Create folds
+fold_k <- 10
+tt_indices <- createFolds(y = food_deaths2$Deaths_per_capita, k=fold_k)
+test_results <- list()
+
+for(i in 1:fold_k){
+  # Create train, test sets
+  fooddeaths_train <- food_deaths2[-tt_indices[[i]],]
+  fooddeaths_test <- food_deaths2[tt_indices[[i]],]
+  
+  # Fit CART w/out pruning/tuning
+  cart_fit <- train(Deaths_per_capita~., data=fooddeaths_train, method="rpart", tuneLength =10)
+  
+  # Test on test data
+  test_predict <- predict(cart_fit, newdata=fooddeaths_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, fooddeaths_test$Deaths_per_capita)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_cart <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_cart, 2, mean)
+cv_error_se <- apply(test_results_all_cart, 2, sd)
+
+print("CV error = ") 
+cv_error
+print("CV error SE = ") 
+cv_error_se
+```
+
+
+
+## Random Forest Regression - 10 fold CV
+```{r}
+# Create grid
+total_p <- dim(food_deaths2)[2]-1
+tuning_grid <- expand.grid("trees"=c(50, 250, 500),
+                           "p"=c(total_p/2, sqrt(total_p), total_p))
+
+test_results <- list()
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_deaths2$Deaths_per_capita, k=fold_k)
+
+# Train, tune, test
+for(i in 1:length(tt_indices)){
+  
+  # Create train, test sets
+  fooddeaths_train <- food_deaths2[-tt_indices[[i]],]
+  fooddeaths_test <- food_deaths2[tt_indices[[i]],]
+  
+  # Tune over grid
+  tune_results <- c()
+  for(j in 1:dim(tuning_grid)[1]){
+    set.seed(12)
+    rf_tune <- randomForest(Deaths_per_capita~., data=fooddeaths_train,
+                            mtry = tuning_grid$p[j],
+                            ntree = tuning_grid$trees[j])
+    tune_results[j] <- rf_tune$mse[tuning_grid$trees[j]]
+  }
+  
+  train_tune_results <- cbind(tuning_grid, "mse"=tune_results)
+  best_tune <- train_tune_results[which(tune_results==min(tune_results)),]
+  
+  # Fit on training use best tune
+  set.seed(12)
+  rf_fit <- randomForest(Deaths_per_capita~., data=fooddeaths_train,
+                            mtry = best_tune$p,
+                            ntree = best_tune$trees)
+  
+  # Test on test data
+  test_predict <- predict(rf_fit, newdata=fooddeaths_test)
+  
+  # Save fold-specific results
+  test_results[[i]] <- postResample(test_predict, fooddeaths_test$Deaths_per_capita)
+}
+
+# Compute CV error estimates and CV SE of estimates
+test_results_all_rf <- data.frame(do.call("rbind", test_results)) %>%
+  mutate(MSE = RMSE^2)
+
+cv_error <- apply(test_results_all_rf, 2, mean)
+cv_error_se <- apply(test_results_all_rf, 2, sd)
+
+cv_error
+cv_error_se
+```
+
+
+## SVR - 10 fold CV
+
+Linear kernel
+```{r}
+set.seed(12)
+
+# 10-fold CV
+fold_k <- 10
+tt_indices <- createFolds(y = food_deaths2$Deaths_per_capita, k=fold_k)
+mse_per_fold <- list()
+mse_per_fold_regress <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_deaths2[-tt_indices[[i]],]
+  test_data <- food_deaths2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Deaths_per_capita~., data=train_data, kernel ="linear",
+         ranges = list(gamma = 0.035, 
+                       cost = 1:5,
+                       epsilon = seq(from=0.1, to=0.5, by=0.1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+  lm_fit <- lm(Deaths_per_capita~., data=train_data)
+  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Deaths_per_capita)
+  mse_per_fold_regress[[i]] <- postResample(pred = predict_lm,
+                                    obs = test_data$Deaths_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+mse_all_folds_regress <- do.call("rbind", mse_per_fold_regress)
+mse_all_folds_regress <- cbind(mse_all_folds_regress, 
+                               "MSE"=(mse_all_folds_regress[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Do same for regression
+regress_cv_results <- data.frame("Method"="lm",
+                    "CV_MSE"=mean(mse_all_folds_regress[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds_regress[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+all_results <- rbind(svm_cv_results, regress_cv_results)
+all_results
+flextable(all_results)
+```
+
+Polynomial kernel
+```{r}
+set.seed(12)
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_deaths2$Deaths_per_capita, k=fold_k)
+mse_per_fold <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_deaths2[-tt_indices[[i]],]
+  test_data <- food_deaths2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Deaths_per_capita~., data=train_data, kernel="polynomial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       d=c(2,3)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+#  lm_fit <- lm(Deaths_per_capita~., data=train_data)
+#  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Deaths_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+svm_cv_results
+flextable(svm_cv_results)
+```
+
+
+Radial kernel
+```{r}
+# 10-fold CV
+set.seed(12)
+
+fold_k <- 10
+tt_indices <- createFolds(y = food_deaths2$Deaths_per_capita, k=fold_k)
+mse_per_fold <- list()
+
+for(i in 1:fold_k){
+  train_data <- food_deaths2[-tt_indices[[i]],]
+  test_data <- food_deaths2[tt_indices[[i]],]
+  
+  # Tune SVM
+  tune_svm <- 
+    tune(svm, Deaths_per_capita~., data=train_data, kernel="radial",
+         ranges = list(gamma = c(0.001, 0.05, 0.1), 
+                       cost = 1:3,
+                       epsilon = c(0.1, 0.5, 1)))
+  
+  # Get best model
+  svm_tuned <- tune_svm$best.model
+  predict_svm <- predict(svm_tuned, newdata=test_data)
+  
+  # Create linear regression model
+#  lm_fit <- lm(Deaths_per_capita~., data=train_data)
+#  predict_lm <- predict(lm_fit, newdata=test_data)
+  
+  # Store MSE
+  mse_per_fold[[i]] <- postResample(pred = predict_svm,
+                                    obs = test_data$Deaths_per_capita)
+}
+# Bind together, add MSE
+mse_all_folds <- do.call("rbind", mse_per_fold)
+mse_all_folds <- cbind(mse_all_folds, "MSE"=(mse_all_folds[,"RMSE"])^2)
+# Get mean and SE MSE
+svm_cv_results <- data.frame("Method"="svm",
+                    "CV_MSE"=mean(mse_all_folds[,"MSE"]),
+                    "CV_MSE_SE"=sd(mse_all_folds[,"MSE"]))
+# Print results in flextable (not needed, but useful)
+svm_cv_results
+flextable(svm_cv_results)
+```
+

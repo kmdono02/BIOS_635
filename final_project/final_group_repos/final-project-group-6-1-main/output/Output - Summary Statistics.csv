@@ -1,0 +1,37 @@
+Split by cases above/below median,,,,,,Split by deaths above/below median,,,,,,No split (overall set),,
+Characteristic,N,"Above, N = 82*","Below, N = 82*",p-value2,,Characteristic,N,"Above, N = 82*","Below, N = 82*",p-value2,,Characteristic,N,N = 164*
+Alcoholic Beverages,164,1.81 (1.11),0.87 (0.78),<0.001,,Alcoholic Beverages,164,1.80 (1.12),0.89 (0.79),<0.001,,Alcoholic Beverages,164,1.34 (1.07)
+Animal Products,164,11.7 (3.9),6.9 (4.3),<0.001,,Animal Products,164,11.7 (4.0),6.9 (4.2),<0.001,,Animal Products,164,9.3 (4.8)
+Animal fats,164,1.73 (1.44),0.82 (0.96),<0.001,,Animal fats,164,1.76 (1.46),0.79 (0.89),<0.001,,Animal fats,164,1.28 (1.30)
+"Aquatic Products, Other",164,,,0.12,,"Aquatic Products, Other",164,,,0.12,,"Aquatic Products, Other",164,
+0,,82 (100%),78 (95%),,,0,,82 (100%),78 (95%),,,0,,160 (98%)
+0.0185,,0 (0%),1 (1.2%),,,0.0185,,0 (0%),1 (1.2%),,,0.0185,,1 (0.6%)
+0.0209,,0 (0%),1 (1.2%),,,0.0209,,0 (0%),1 (1.2%),,,0.0209,,1 (0.6%)
+0.0336,,0 (0%),1 (1.2%),,,0.0336,,0 (0%),1 (1.2%),,,0.0336,,1 (0.6%)
+0.4007,,0 (0%),1 (1.2%),,,0.4007,,0 (0%),1 (1.2%),,,0.4007,,1 (0.6%)
+Cereals - Excluding Beer,164,18 (5),23 (7),<0.001,,Cereals - Excluding Beer,164,18 (5),23 (7),<0.001,,Cereals - Excluding Beer,164,20 (6)
+Eggs,164,0.52 (0.26),0.34 (0.33),<0.001,,Eggs,164,0.53 (0.26),0.33 (0.32),<0.001,,Eggs,164,0.43 (0.31)
+"Fish, Seafood",164,0.65 (0.61),0.57 (0.49),0.4,,"Fish, Seafood",164,0.64 (0.61),0.58 (0.49),0.4,,"Fish, Seafood",164,0.61 (0.55)
+Fruits - Excluding Wine,164,2.27 (1.45),1.79 (1.39),0.031,,Fruits - Excluding Wine,164,2.13 (1.38),1.93 (1.49),0.4,,Fruits - Excluding Wine,164,2.03 (1.44)
+Meat,164,4.66 (1.81),3.03 (2.26),<0.001,,Meat,164,4.58 (1.85),3.11 (2.28),<0.001,,Meat,164,3.84 (2.20)
+Milk - Excluding Butter,164,3.95 (1.80),1.96 (1.73),<0.001,,Milk - Excluding Butter,164,3.99 (1.79),1.92 (1.69),<0.001,,Milk - Excluding Butter,164,2.96 (2.02)
+Offals,164,0.15 (0.09),0.14 (0.13),0.6,,Offals,164,0.14 (0.08),0.14 (0.13),0.9,,Offals,164,0.14 (0.11)
+Oilcrops,164,0.68 (0.81),1.40 (1.81),0.001,,Oilcrops,164,0.68 (0.91),1.40 (1.75),0.001,,Oilcrops,164,1.04 (1.44)
+Pulses,164,0.78 (0.71),1.45 (1.49),<0.001,,Pulses,164,0.75 (0.64),1.48 (1.50),<0.001,,Pulses,164,1.11 (1.21)
+Starchy Roots,164,2.1 (2.3),4.1 (4.9),0.001,,Starchy Roots,164,2.0 (2.2),4.3 (4.9),<0.001,,Starchy Roots,164,3.1 (4.0)
+Stimulants,164,0.46 (0.35),0.15 (0.16),<0.001,,Stimulants,164,0.45 (0.35),0.16 (0.16),<0.001,,Stimulants,164,0.30 (0.31)
+Sugar Crops,164,0.00 (0.01),0.03 (0.10),0.004,,Sugar Crops,164,0.00 (0.01),0.03 (0.10),0.004,,Sugar Crops,164,0.02 (0.07)
+Sugar & Sweeteners,164,5.73 (1.66),4.01 (2.19),<0.001,,Sugar & Sweeteners,164,5.73 (1.63),4.01 (2.22),<0.001,,Sugar & Sweeteners,164,4.87 (2.12)
+Treenuts,164,0.30 (0.29),0.23 (0.29),0.084,,Treenuts,164,0.30 (0.28),0.23 (0.30),0.11,,Treenuts,164,0.26 (0.29)
+Vegetal Products,164,38.3 (3.9),43.1 (4.3),<0.001,,Vegetal Products,164,38.3 (4.0),43.1 (4.2),<0.001,,Vegetal Products,164,40.7 (4.8)
+Vegetable Oils,164,5.00 (2.15),4.80 (2.23),0.6,,Vegetable Oils,164,5.15 (2.18),4.65 (2.17),0.14,,Vegetable Oils,164,4.90 (2.18)
+Vegetables,164,1.20 (0.62),0.97 (0.67),0.024,,Vegetables,164,1.19 (0.62),0.97 (0.67),0.034,,Vegetables,164,1.08 (0.65)
+Cases_per_capita,164,173 (279),2 (2),<0.001,,Deaths_per_capita,164,2.42 (3.82),0.03 (0.04),<0.001,,Cases_per_capita,164,87 (215)
+*Mean (SD); n (%),,,,,,*Mean (SD); n (%),,,,,,Deaths_per_capita,164,1.22 (2.95)
+2One-way ANOVA; Fisher's exact test,,,,,,2One-way ANOVA; Fisher's exact test,,,,,,Cases_vs_median,164,
+,,,,,,,,,,,,Above,,82 (50%)
+,,,,,,,,,,,,Below,,82 (50%)
+,,,,,,,,,,,,Deaths_vs_median,164,
+,,,,,,,,,,,,Above,,82 (50%)
+,,,,,,,,,,,,Below,,82 (50%)
+,,,,,,,,,,,,*Mean (SD); n (%),,

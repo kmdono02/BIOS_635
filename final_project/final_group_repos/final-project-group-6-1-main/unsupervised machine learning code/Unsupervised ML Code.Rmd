@@ -1,0 +1,398 @@
+---
+title: "Unsupervised ML - PCA & Kmeans for Final Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls(all.names = TRUE)) # clears global environ.
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+Using pca and kmeans to investigate how dimension reductionality affects how clustering predictors impacts the prediction of COVID-19 confirmed cases and deaths from the week of February 6, 2021.
+
+
+```{r}
+library(tidyverse)
+library(rlang)
+library(reshape)
+library(janitor)
+library(caret)
+library(factoextra)
+library(gtsummary)
+library(flextable)
+library(pROC)
+library(Hmisc)
+library(viridis)
+library(patchwork)
+```
+```{r}
+#setting working directory
+setwd('/Users/alexis/Documents/BIOS 635/Final Project')
+Output = '/Users/alexis/Documents/BIOS 635/Final Project/Output'
+
+#reading in data
+food_data = read_csv("Food_Supply_kcal_Data.csv") %>%
+  #first removing variables that aren't of interest (ie. not relevant, not a food group, or are unlikely to have an real impact)
+  select(-Recovered, -Active, -`Unit (all except Population)`, -Obesity, -Undernourished, -Miscellaneous, -Spices) %>%
+  drop_na() %>%
+  #cases are per 100,000,000 people
+  mutate(Confirmed_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = ifelse(Confirmed_per_capita > median(Confirmed_per_capita), "Above", "Below"), Deaths_vs_median = ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below"))
+```
+
+First step will be to determine, which variables are collinear and need to be removed. For this analysis we're only interested in looking at both COVID-19 confirmed cases and deaths. 
+
+```{r}
+##DO LATER!!
+#just plotting to see what countries have the highest cases/deaths 
+#consider making countries binary based upon low or high deaths/cases
+#ggplot(food_data, aes(x = Cases_vs_median, y = `Per Capita Confirmed Cases`)) + 
+  #geom_boxplot() + 
+
+#creating correlation matrix
+corr_matrix = rcorr(as.matrix(food_data[2:22]), type = "spearman")
+#creating df where I can easily view coefficents that are highly correlated (rho > 0.7 or rho < -0.7)
+corr_matrix_df = data.frame(corr_matrix$r) %>%
+  rownames_to_column(var = "Variable1") %>%
+  #needed to specificy package of melt for it to work
+  reshape2::melt(variable = "Variable2", value.name = "Spearman Coefficient") %>%
+  #also removed values = 1, because those were correlations between the same variable
+  filter(abs(`Spearman Coefficient`) < 1 & abs(`Spearman Coefficient`) > 0.7) %>%
+  arrange(desc(`Spearman Coefficient`)) %>%
+  #removing duplicate spearman coefficient values and keeping all columns
+  distinct(`Spearman Coefficient`, .keep_all = TRUE) 
+
+corr_matrix_df
+```
+
+Based on these results, we should either remove animal products or remove meat, milk - excluding butter, and eggs. According to the metadata animal products include these 3 food groups.  
+
+Preceding removing animal products, performing PCA first, and seeing how much of the variance was captured.
+
+``` {r}
+food_data = food_data %>%
+  #removed animal products since it was easier
+  select(-c(`Animal Products`, `Vegetal Products`)) %>%
+  filter(Country != "Korea, South") #removing since this was an outlier in a cluster by itself
+
+#running pca 
+pca_food_data = prcomp(food_data[2:20], scale = TRUE)
+
+#looking a scree plot to see how much of the variance was captured in first 2 eigenvectors
+fviz_eig(pca_food_data)
+
+#want to determine percent variance captured for each PC
+pca_food_data$sdev^2/sum((pca_food_data$sdev^2)) * 100
+
+#do this after running kmeans and facet wrap by analysis type
+cases_pca_plot = fviz_pca_ind(pca_food_data, 
+             col.ind = food_data$Cases_vs_median, # color by cases_vs_median
+             #adding 95% confidence ellipses for each group
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Cases vs. Median",
+             repel = TRUE, title = "") +
+theme(axis.line = element_line(colour = "black"), #making x and y axes black
+      legend.title = element_text(size = 9, face = "bold"),
+      legend.text = element_text(size = 8),
+      legend.position = 'bottom',
+      axis.title = element_text(face = "bold", size = rel(1.1))) + #changes axis titles
+
+  labs(x = "Dimension 1 (26.7%)", y = ("Dimension 2 (10.8%)")) 
+
+cases_pca_plot
+
+deaths_pca_plot = fviz_pca_ind(pca_food_data, 
+             col.ind = food_data$Deaths_vs_median, # color by cases_vs_deaths
+             #adding 95% confidence ellipses for each group
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Deaths vs. Median",
+             repel = TRUE, title = "") +
+theme(axis.line = element_line(colour = "black"), #making x and y axes black
+      legend.title = element_text(size = 9, face = "bold"),
+      legend.text = element_text(size = 8),
+      legend.position = 'bottom',
+      axis.title = element_text(face = "bold", size = rel(1.1))) + #changes axis titles
+
+  labs(x = "Dimension 1 (26.7%)", y = ("Dimension 2 (10.8%)")) 
+
+deaths_pca_plot
+
+```
+
+Quantifying each variable's weighted contribution to principal components by looking at loadings. Only looking at first principal component, since it captures a significantly larger portion of the variance. 
+
+```{r}
+#looking at loadings
+#trying to see what food categories have high loadings for a PC (what principal components are driven by what food groups?)
+loadings = data.frame(pca_food_data$rotation) %>%
+  rownames_to_column(var = "Food Category") %>%
+  select(`Food Category`, PC1, PC2) %>%
+  pivot_longer(cols = c("PC1", "PC2"), names_to = "PC", values_to = "Loading")
+
+#version 1 
+ggplot(loadings %>%
+         #filtering for PC1
+         filter(PC == "PC1"), 
+       aes(y = reorder(`Food Category`, -Loading), x = Loading)) + 
+  geom_bar(stat = "identity") + 
+  #facet_wrap(~PC, ncol = 1, scales = 'free_y') 
+  ylab("Food Category")
+
+#version 2
+Loadings_plot = ggplot(loadings %>%
+         #filtering for PC1
+         filter(PC == "PC1")) + 
+  geom_col(aes(y = reorder(`Food Category`, abs(Loading)), x = abs(Loading), color = abs(Loading), fill = abs(Loading))) + 
+  geom_vline(xintercept = mean(abs(loadings$Loading)), linetype = "dashed") + 
+  geom_text(aes(x = mean(abs(loadings$Loading)), label = "Average\n", y = 2), angle = 270) +
+  theme_bw() + 
+  
+  theme(axis.line = element_line(colour="black"), #making x and y axes black
+        axis.title = element_text(face = "bold", size = rel(1.1)), #changes axis titles
+        legend.position = "none") + #removing legend
+  
+  labs(x = "Absolute Value of Loading", y = ("Food Category")) + 
+  scale_color_viridis() + 
+  scale_fill_viridis()
+  
+Loadings_plot
+```
+
+Next, using kmeans to group countries into clusters. (Later realizing that unsupervised machine learning like kmeans doesn't make since, because we know what the outcome should be either cases or deaths. Therefore, we can still justify using PCA as means for dimension reduction for KNN.)
+
+```{r}
+#determining the optimal number of clusters based on where BIC is minimized 
+# Create function to compute AIC, BIC
+set.seed(12) #for reproducibility
+kmeansAICBIC = function(fit){
+  m = ncol(fit$centers)
+  n = length(fit$cluster)
+  k = nrow(fit$centers)
+  D = fit$tot.withinss
+  return(data.frame(AIC = D + 2*m*k,
+                    BIC = D + log(n)*m*k))
+}
+
+#standardizing data
+scaled_food_data = scale(food_data[,2:20]) #getting all the columns except the first which are countries 
+clus <- list()
+clustering_values = data.frame()
+for (i in 1:12){
+  clus[[i]] <- kmeans(x = scaled_food_data, centers = i, nstart = 10) #storing each cluster model 
+  aic_bic <- kmeansAICBIC(clus[[i]])
+  Cluster_Number <- i
+  
+  #saving values
+  clustering_values = rbind(clustering_values, cbind(Cluster_Number, aic_bic))
+}
+
+clustering_values
+
+#BIC vs. cluster # plot
+clus_min_bic <-which(clustering_values$BIC == min(clustering_values$BIC))
+ggplot(data = clustering_values, aes(x = Cluster_Number, y = BIC)) + 
+  geom_point() + 
+  geom_line() + 
+  geom_vline(xintercept = clus_min_bic, linetype = "dashed", color = "red") + 
+  geom_hline(yintercept = min(clustering_values$BIC), linetype = "dashed", color = "red") +
+  theme_bw()
+
+```
+
+We can see that 7 is the optimal number of clusters. Therefore, we will predict COVID-19 cases and deaths continously per capita using these clusters. 
+
+```{r}
+#creating new df with PCs and outcomes of interest
+#countries, only using first 3 PCs based on scree plot and adding 2 outcomes
+combined_df_continuous = data.frame(#Country = food_data$Country, #ids
+                         "clus" = factor(clus[[clus_min_bic]]$cluster), #clustered data
+                         pca_food_data$x[,1:3], #PCs
+                         Confirmed_per_capita = food_data$Confirmed_per_capita, #outcomes
+                         Deaths_per_capita = food_data$Deaths_per_capita) 
+
+
+#now predicting with knn
+set.seed(12)
+#splitting data into training and testing sets
+  combined_food_data_index = createFolds(combined_df_continuous$Deaths_per_capita, k = 10) #10 fold CV
+  errors_continuous = data.frame()
+  for (i in 1:length(combined_food_data_index)){
+    combined_food_train = combined_df_continuous[-combined_food_data_index[[i]],]
+    combined_food_test = combined_df_continuous[combined_food_data_index[[i]],]
+      
+    #training algorithm knn
+    knn_fit_cases = train(Confirmed_per_capita ~ PC1 + PC2 + PC3, data = combined_food_train, method = 'knn', preProcess = c("center", "scale"), tuneLength = 20)
+    knn_fit_deaths = train(Deaths_per_capita ~ PC1 + PC2 + PC3, data = combined_food_train, method = 'knn', preProcess = c("center", "scale"), tuneLength = 20)
+  
+    # testing algorithm on test set 
+    combined_food_test$pred_cases = predict(knn_fit_cases, newdata = combined_food_test)
+    combined_food_test$pred_deaths = predict(knn_fit_deaths, newdata = combined_food_test)
+    
+    #calculating MSE
+    error_values_cases = postResample(combined_food_test$pred_cases, combined_food_test$Confirmed_per_capita)
+    error_values_deaths = postResample(combined_food_test$pred_deaths, combined_food_test$Deaths_per_capita)
+
+    #adding values to df
+    errors_continuous = rbind(errors_continuous, cbind("Confirmed_per_capita", error_values_cases[1]^2))
+    errors_continuous = rbind(errors_continuous, cbind("Deaths_per_capita", error_values_deaths[1]^2))
+  
+  }
+
+colnames(errors_continuous) = c("Outcome", "MSE")
+errors_continuous$MSE = as.numeric(errors_continuous$MSE) #needed to convert back into a numeric
+
+#taking averages/sd
+errors_continuous = errors_continuous %>%
+  group_by(Outcome) %>%
+  dplyr::summarize(`CV Error` = mean(MSE), `Std Error` = sd(MSE))
+
+
+#viewing results
+errors_continuous
+```
+
+Unsure as to why the errors for cases are substantially larger than that for deaths, but seeing if KNN is better at predicting a binary outcome. 
+
+``` {r}
+#creating new df with PCs and outcomes of interest
+#countries, only using first 3 PCs based on scree plot and adding 2 outcomes
+combined_df_binary = data.frame(#Country = food_data$Country, #ids
+                         "clus" = factor(clus[[clus_min_bic]]$cluster), #clustered data
+                         pca_food_data$x[,1:3], #PCs
+                         Cases_vs_median = food_data$Cases_vs_median, #outcomes
+                         Deaths_vs_median = food_data$Deaths_vs_median) 
+
+#need to make outcomes into factors for knn to work
+combined_df_binary$Cases_vs_median = factor(combined_df_binary$Cases_vs_median)
+combined_df_binary$Deaths_vs_median = factor(combined_df_binary$Deaths_vs_median)
+
+#now predicting with knn
+set.seed(12)
+#splitting data into training and testing sets
+combined_food_data_index = createFolds(combined_df_binary$Deaths_vs_median, k = 10) #10 fold CV
+errors_binary = data.frame()
+for (i in 1:length(combined_food_data_index)){
+  combined_food_train = combined_df_binary[-combined_food_data_index[[i]],]
+  combined_food_test = combined_df_binary[combined_food_data_index[[i]],]
+      
+  #training algorithm knn
+  knn_fit_cases = train(Cases_vs_median ~ PC1 + PC2 + PC3, data = combined_food_train, method = 'knn', preProcess = c("center", "scale"), tuneLength = 20)
+  knn_fit_deaths = train(Deaths_vs_median ~ PC1 + PC2 + PC3, data = combined_food_train, method = 'knn', preProcess = c("center", "scale"), tuneLength = 20)
+  
+  # testing algorithm on test set 
+  combined_food_test$pred_cases = predict(knn_fit_cases, newdata = combined_food_test)
+  combined_food_test$pred_deaths = predict(knn_fit_deaths, newdata = combined_food_test)
+  cases_matrix = confusionMatrix(combined_food_test$pred_cases, combined_food_test$Cases_vs_median)
+  deaths_matrix = confusionMatrix(combined_food_test$pred_deaths, combined_food_test$Deaths_vs_median)
+    
+  #calculating errors and adding to the same df
+  cases_df = data.frame(t(c(cases_matrix$overall[1], cases_matrix$byClass[1:4]))) #extracting accuracy, sens, spec, PPV, NPV 
+  deaths_df = data.frame(t(c(deaths_matrix$overall[1], deaths_matrix$byClass[1:4]))) #extracting accuracy, sens, spec, PPV, NPV 
+  errors_binary = rbind(errors_binary, rbind(cases_df, deaths_df))
+  
+}
+
+#need to outcome to ensure the results correspond with the correct outcome
+errors_binary$Outcome = rep(c("Cases_vs_median", "Deaths_vs_median"), times = 5)
+
+#taking averages/sd
+errors_binary = errors_binary %>%
+  group_by(Outcome) %>%
+  dplyr::summarize(`CV Error` = mean(Accuracy), `Std Error` = sd(Accuracy))
+
+
+#viewing results
+errors_binary
+```
+
+KNN in much better at predicting the outcome dichotomously. Visualizing those 7 clusters based on kmeans and clusters based on PCA. 
+
+``` {r}
+#visualization of kmeans clusters with lowest BIC
+kmeans_clusters = fviz_cluster(clus[[7]], data = scaled_food_data, show.clust.cent = TRUE, geom = "point", #removing labels
+                      pointsize = 2.5, repel = TRUE, main = FALSE, ggtheme = theme_bw(), 
+                      legend.title = "Cluster") +
+theme(axis.line = element_line(colour = "black"), #making x and y axes black
+      legend.title = element_text(size = 10, face = "bold"),
+      axis.title = element_text(face = "bold", size = rel(1.1))) + #changes axis titles
+
+  labs(x = "Dimension 1 (26.7%)", y = ("Dimension 2 (10.8%)")) 
+
+kmeans_clusters
+
+#seeing if this looks similar to the dichotomous PCA plot that was colored by outcome
+pca_clusters = fviz_pca_ind(pca_food_data, 
+             col.ind = combined_df_binary$clus, # color by cluster (using cluster # where BIC was minimized)
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Cluster",
+             repel = TRUE, title = "") +
+theme(axis.line = element_line(colour = "black"), #making x and y axes black
+      legend.title = element_text(size = 10, face = "bold"),
+      axis.title = element_text(face = "bold", size = rel(1.1))) + #changes axis titles
+
+  labs(x = "Dimension 1 (26.7%)", y = ("Dimension 2 (10.8%)")) 
+
+pca_clusters
+
+#it isn't so I'm just curious to see what 2 clusters looks like
+fviz_pca_ind(pca_food_data, 
+             col.ind = factor(clus[[2]]$cluster), # color by cluster (using cluster # where BIC was minimized)
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             legend.title = "Cluster",
+             repel = TRUE)
+```
+
+Saving all these results. 
+
+``` {r}
+#combinining all KNN results
+KNN_results = rbind(errors_binary, errors_continuous)
+KNN_results$Method = rep("KNN", times = length(KNN_results$Outcome))
+KNN_results
+
+#combining pca figures
+pca_plots = cases_pca_plot + deaths_pca_plot + pca_clusters + plot_layout(ncol = 1)
+pca_plots
+```
+```{r}
+#exporting results
+write.csv(corr_matrix_df, paste0(Output,"/", "Pearson_Correlations.csv"), row.names = TRUE)
+write.csv(KNN_results, paste0(Output,"/", "KNN_PCA_results.csv"), row.names = FALSE)
+
+#saving figures 
+ggsave(Loadings_plot, 
+       filename = 'Loadings_plot.pdf',
+       path = Output,
+       width = 12, height = 7)
+
+ggsave(kmeans_clusters, 
+       filename = 'Kmeans_clusters.pdf',
+       path = Output,
+       width = 12, height = 7)
+
+ggsave(pca_plots, 
+       filename = 'PCA_plots.pdf',
+       path = Output,
+       width = 12, height = 20)
+
+
+ggsave(cases_pca_plot, 
+       filename = 'Cases_PCA_plot.pdf',
+       path = Output,
+       width = 12, height = 7)
+
+ggsave(deaths_pca_plot, 
+       filename = 'Deaths_PCA_plot.pdf',
+       path = Output,
+       width = 12, height = 7)
+
+ggsave(pca_clusters, 
+       filename = 'Clusters_PCA_plot.pdf',
+       path = Output,
+       width = 12, height = 7)
+```

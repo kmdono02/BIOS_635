@@ -1,0 +1,420 @@
+---
+title: "635 Final Project (Eileen's part)"
+author: "Eileen Yang"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rlang)
+library(reshape)
+library(reshape2)
+library(caret)
+library(factoextra)
+library(gtsummary)
+library(flextable)
+library(pROC)
+library(glmnet)
+library(broom)
+library(gt)
+library(caret)
+library(GGally)
+library(mgcv)
+library(splines)
+```
+
+Read in data
+```{r}
+
+food <-  read_csv("/Users/eileenyang/Desktop/R/BIOS 635/final-project-group-6-1-main/data/Food_Supply_kcal_Data.csv") %>%
+  #first removing variables that aren't of interest (ie. not relevant, not a food group, or are unlikely to have an real impact)
+  select(-Recovered, -Active, -`Unit (all except Population)`, -Obesity, -Undernourished, -Miscellaneous, -Spices, -Country) %>%
+  drop_na() %>%
+  #cases are per 100,000,000 people
+  mutate(Cases_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = ifelse(Cases_per_capita > median(Cases_per_capita), "Above", "Below"), Deaths_vs_median = ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below"))
+
+food$Cases_vs_median <- as.factor(food$Cases_vs_median)
+food$Deaths_vs_median <- as.factor(food$Deaths_vs_median)
+
+food <- select(food,  -c("Confirmed","Deaths", "Population"))
+
+food_cases <- select(food,  -c("Deaths_per_capita","Deaths_vs_median"))
+food_deaths <- select(food,  -c("Cases_per_capita","Cases_vs_median"))
+
+```
+
+Summarize data
+```{r}
+#remove country for data summary
+foodcols <- colnames(food)
+foodcols <- foodcols[-1]
+
+#summary for cases_vs_median:
+tbl1 <- tbl_summary(data=food_cases, by=Cases_vs_median, include=colnames(food_cases), statistic = list(all_continuous() ~ "{mean} ({sd})"))
+
+tbl2 <- tbl1 %>% add_p(test = list(all_continuous() ~ "aov")) %>% add_n()
+tbl2_flex <- as_flex_table(tbl2)  %>% bold(part="header")
+tbl2_flex
+
+#summary for cases and deaths_vs_median:
+tbl1 <- tbl_summary(data=food_deaths, by=Deaths_vs_median, include=colnames(food_deaths), statistic = list(all_continuous() ~ "{mean} ({sd})"))
+
+tbl2 <- tbl1 %>% add_p(test = list(all_continuous() ~ "aov")) %>% add_n()
+tbl2_flex <- as_flex_table(tbl2)  %>% bold(part="header")
+tbl2_flex
+
+#######################
+
+#summary for cases per capita:
+tbl1 <- tbl_summary(data=food, include=colnames(food), statistic = list(all_continuous() ~ "{mean} ({sd})"))
+
+tbl2 <- tbl1  %>% add_n()
+tbl2_flex <- as_flex_table(tbl2)  %>% bold(part="header")
+tbl2_flex
+
+```
+
+## Correlations
+```{r, fig.width = 12, fig.height = 8}
+#First, some correlation plots to see correlations
+food_cases_num <- food_cases[,-23]
+foodcases_corr <- cor(food_cases_num)
+corrp <- corrplot::corrplot(foodcases_corr, method="number")
+```
+- It looks like some food categories are strongly associated with others:
+  - Milk - Excluding Butter and Animal Products (+)
+  - Meat and Animal Products (-)
+  - Vegetal Products and Animal Products (-)
+  - Vegetal Products and Animal Fats (-)
+  - Vegetal Products and Meat (-)
+  - Vegetal Products and Milk - Excluding Butter (-)
+
+- It would make sense to remove some of these variables--perhaps removing Animal Products and Vegetal Products would be beneficial. **(or even more of the animal-related variables?)**
+
+
+# Continuous Outcomes - Cases
+**note I had to remove Aquatic Products, Other for now bc it was giving me some issues**
+With collinear variables removed (Animal Products, Vegetal Products)
+```{r}
+food_cases2 <- select(food_cases, -c("Cases_vs_median","Aquatic Products, Other", "Animal Products","Vegetal Products"))
+```
+
+## KNN regression (10 fold)
+```{r}
+set.seed(12)
+
+  folds <- createFolds(y=food_cases2$Cases_per_capita, k=10)
+  foldnum <- list()
+  mselist <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    foodcases_train <- food_cases2[-folds[[f]],]
+    foodcases_test <- food_cases2[folds[[f]],]
+    knn_train <- train(form=`Cases_per_capita` ~., data=foodcases_train,
+                       method="knn", tuneLength = 20, preProcess=c("scale", "center"))
+    foodcases_pred <- predict(knn_train, newdata=foodcases_test)
+    mselist[f] <- mean((foodcases_test$`Cases_per_capita` - foodcases_pred) ^ 2) 
+    
+    }
+error_knn <- mean(unlist(mselist))
+sd_knn <- sd(unlist(mselist))
+error_knn
+sd_knn
+
+```
+
+## Linear Regression
+
+First check assumptions 
+**Actually doesn't seem to meet lin regression assumptions...so might take this part out**
+```{r, fig.width = 12, fig.height = 8}
+food_cases2 %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram()
+
+
+#removing outliers
+#length(which(food_cases2$Cases_per_capita > 500))
+#mean(food_cases2$Cases_per_capita)
+#hist(food_cases2[food_cases2$Cases_per_capita < 500,]$`Cases_per_capita`)
+
+food_cases2_outlier_rm <- food_cases2[food_cases2$Cases_per_capita < 500,]
+
+
+#melt your data
+foodcases_melt <- melt(food_cases2_outlier_rm,"Cases_per_capita")
+head(foodcases_melt)
+
+
+#scatterplot per group
+ggplot(foodcases_melt, aes(x=value, y=Cases_per_capita)) +
+  geom_point() +
+  facet_wrap(.~variable, scales = "free_x") 
+```
+
+10 fold CV
+```{r}
+set.seed(12)
+
+folds <- createFolds(y=food_cases2$Cases_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    foodcases_train <- food_cases2[-folds[[f]],]
+    foodcases_test <- food_cases2[folds[[f]],]
+    lm_train <- lm(`Cases_per_capita` ~., data=foodcases_train)
+    foodcases_pred <- predict(lm_train, newdata=foodcases_test)
+    mselist2[f] <- mean((foodcases_test$`Cases_per_capita` - foodcases_pred) ^ 2)
+}
+error_lin <- mean(unlist(mselist2))
+sd_lin <- sd(unlist(mselist2))
+error_lin
+sd_lin
+```
+
+
+## Lasso vs linear regression - holdout method to see which variables would be removed
+```{r}
+food_cases2_forlasso <- select(food_cases, -c("Cases_vs_median","Aquatic Products, Other"))
+
+set.seed(12)
+
+#From Lasso
+foodcases_lasso_full <- cv.glmnet(x = as.matrix(food_cases2_forlasso[, -21]), y = food_cases2$Cases_per_capita, alpha = 1) 
+tmp_coeffs <- coef(foodcases_lasso_full, s=foodcases_lasso_full$lambda.min)
+data.frame(name = tmp_coeffs@Dimnames[[1]][tmp_coeffs@i + 1], coefficient = tmp_coeffs@x)
+plot(foodcases_lasso_full)
+
+#From Linear Regression
+foodcases_lm_full <- lm(Cases_per_capita ~., data=food_cases2_forlasso)
+summary(foodcases_lm_full)
+```
+- It looks like 12 variables are kept in the model, with 8 removed: Alcoholic Beverages, Animal Products, Cereals - excluding Beer, Milk - Excluding Butter, Oilcrops, Sugar Crops, Treenuts, and Vegetal Products.
+
+
+## Lasso (10-fold):
+```{r}
+set.seed(12)
+folds <- createFolds(y=food_cases2_forlasso$Cases_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    foodcases_train <- food_cases2_forlasso[-folds[[f]],]
+    foodcases_test <- food_cases2_forlasso[folds[[f]],]
+
+    foodcases_lasso1 <- cv.glmnet(x=as.matrix(foodcases_train[,-21]), y=foodcases_train$Cases_per_capita, alpha=1)
+    opt_lambda <- foodcases_lasso1$lambda.min
+    
+    foodcases_pred <-  predict(foodcases_lasso1, newx=as.matrix(foodcases_test[,-21]), s=opt_lambda)
+    mselist2[f] <- mean((foodcases_test$Cases_per_capita - foodcases_pred) ^ 2) 
+    
+  }
+error_lasso <- mean(unlist(mselist2))
+sd_lasso <- sd(unlist(mselist2))
+
+error_lasso
+sd_lasso
+
+```
+
+Ridge - 10 fold
+```{r}
+set.seed(12)
+folds <- createFolds(y=food_cases2_forlasso$Cases_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    foodcases_train <- food_cases2_forlasso[-folds[[f]],]
+    foodcases_test <- food_cases2_forlasso[folds[[f]],]
+
+    foodcases_ridge1 <- cv.glmnet(x=as.matrix(foodcases_train[,-21]), y=foodcases_train$Cases_per_capita, alpha=0)
+    opt_lambda <- foodcases_ridge1$lambda.min
+    
+    foodcases_pred <-  predict(foodcases_ridge1, newx=as.matrix(foodcases_test[,-21]), s=opt_lambda)
+    mselist2[f] <- mean((foodcases_test$Cases_per_capita - foodcases_pred) ^ 2) 
+    
+  }
+error_ridge <- mean(unlist(mselist2))
+sd_ridge <- sd(unlist(mselist2))
+
+error_ridge
+sd_ridge
+```
+
+***
+
+# Continuous Outcomes - Deaths
+**note I had to remove Aquatic Products, Other for now bc it was giving me some issues**
+With collinear variables removed (Animal Products, Vegetal Products)
+```{r}
+food_deaths2 <- select(food_deaths, -c("Deaths_vs_median","Aquatic Products, Other", "Animal Products","Vegetal Products"))
+```
+
+## KNN regression (10 fold)
+```{r}
+set.seed(12)
+
+  folds <- createFolds(y=food_deaths2$Deaths_per_capita, k=10)
+  foldnum <- list()
+  mselist <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    fooddeaths_train <- food_deaths2[-folds[[f]],]
+    fooddeaths_test <- food_deaths2[folds[[f]],]
+    knn_train <- train(form=`Deaths_per_capita` ~., data=fooddeaths_train,
+                       method="knn", tuneLength = 20, preProcess=c("scale", "center"))
+    fooddeaths_pred <- predict(knn_train, newdata=fooddeaths_test)
+    mselist[f] <- mean((fooddeaths_test$`Deaths_per_capita` - fooddeaths_pred) ^ 2) 
+    
+    }
+error_knn <- mean(unlist(mselist))
+sd_knn <- sd(unlist(mselist))
+error_knn
+sd_knn
+
+```
+
+## Linear Regression
+
+First check assumptions 
+**Actually doesn't seem to meet lin regression assumptions...so might take this part out**
+```{r, fig.width = 12, fig.height = 8}
+food_deaths2 %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram()
+
+
+#removing outliers
+#length(which(food_deaths2$Deaths_per_capita > 15))
+#median(food_deaths2$Deaths_per_capita)
+
+food_deaths2_outlier_rm <- food_deaths2[food_deaths2$Deaths_per_capita < 15,]
+
+
+#melt your data
+fooddeaths_melt <- melt(food_deaths2_outlier_rm,"Deaths_per_capita")
+head(fooddeaths_melt)
+
+
+#scatterplot per group
+ggplot(fooddeaths_melt, aes(x=value, y=Deaths_per_capita)) +
+  geom_point() +
+  facet_wrap(.~variable, scales = "free_x") 
+```
+
+10 fold CV
+```{r}
+set.seed(12)
+
+folds <- createFolds(y=food_deaths2$Deaths_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    fooddeaths_train <- food_deaths2[-folds[[f]],]
+    fooddeaths_test <- food_deaths2[folds[[f]],]
+    lm_train <- lm(`Deaths_per_capita` ~., data=fooddeaths_train)
+    fooddeaths_pred <- predict(lm_train, newdata=fooddeaths_test)
+    mselist2[f] <- mean((fooddeaths_test$`Deaths_per_capita` - fooddeaths_pred) ^ 2)
+}
+error_lin <- mean(unlist(mselist2))
+sd_lin <- sd(unlist(mselist2))
+error_lin
+sd_lin
+```
+
+
+## Lasso vs linear regression - holdout method to see which variables would be removed
+```{r}
+food_deaths2_forlasso <- select(food_deaths, -c("Deaths_vs_median","Aquatic Products, Other"))
+
+set.seed(12)
+
+#From Lasso
+fooddeaths_lasso_full <- cv.glmnet(x = as.matrix(food_deaths2_forlasso[, -21]), y = food_deaths2$Deaths_per_capita, alpha = 1) 
+tmp_coeffs <- coef(fooddeaths_lasso_full, s=fooddeaths_lasso_full$lambda.min)
+data.frame(name = tmp_coeffs@Dimnames[[1]][tmp_coeffs@i + 1], coefficient = tmp_coeffs@x)
+plot(fooddeaths_lasso_full)
+
+#From Linear Regression
+fooddeaths_lm_full <- lm(Deaths_per_capita ~., data=food_deaths2_forlasso)
+summary(fooddeaths_lm_full)
+```
+
+
+## Lasso (10-fold):
+```{r}
+set.seed(12)
+folds <- createFolds(y=food_deaths2_forlasso$Deaths_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    fooddeaths_train <- food_deaths2_forlasso[-folds[[f]],]
+    fooddeaths_test <- food_deaths2_forlasso[folds[[f]],]
+
+    fooddeaths_lasso1 <- cv.glmnet(x=as.matrix(fooddeaths_train[,-21]), y=fooddeaths_train$Deaths_per_capita, alpha=1)
+    opt_lambda <- fooddeaths_lasso1$lambda.min
+    
+    fooddeaths_pred <-  predict(fooddeaths_lasso1, newx=as.matrix(fooddeaths_test[,-21]), s=opt_lambda)
+    mselist2[f] <- mean((fooddeaths_test$Deaths_per_capita - fooddeaths_pred) ^ 2) 
+    
+  }
+error_lasso <- mean(unlist(mselist2))
+sd_lasso <- sd(unlist(mselist2))
+
+error_lasso
+sd_lasso
+
+```
+
+Ridge - 10 fold
+```{r}
+set.seed(12)
+folds <- createFolds(y=food_deaths2_forlasso$Deaths_per_capita, k=10)
+  foldnum <- list()
+  mselist2 <- list()
+  
+  for(f in 1:length(folds)){
+    foldnum[f] <- paste("Fold", f)
+    fooddeaths_train <- food_deaths2_forlasso[-folds[[f]],]
+    fooddeaths_test <- food_deaths2_forlasso[folds[[f]],]
+
+    fooddeaths_ridge1 <- cv.glmnet(x=as.matrix(fooddeaths_train[,-21]), y=fooddeaths_train$Deaths_per_capita, alpha=0)
+    opt_lambda <- fooddeaths_ridge1$lambda.min
+    
+    fooddeaths_pred <-  predict(fooddeaths_ridge1, newx=as.matrix(fooddeaths_test[,-21]), s=opt_lambda)
+    mselist2[f] <- mean((fooddeaths_test$Deaths_per_capita - fooddeaths_pred) ^ 2) 
+    
+  }
+error_ridge <- mean(unlist(mselist2))
+sd_ridge <- sd(unlist(mselist2))
+
+error_ridge
+sd_ridge
+```
+```
+

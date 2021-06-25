@@ -1,0 +1,153 @@
+---
+title: "Final Project"
+subtitle: "BIOS 635"
+author: ""
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, include = TRUE, fig.width = 10, fig.height = 5)
+```
+
+```{r packages, echo=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+library(GGally)
+
+# library(DMwR)
+# library(pROC)
+# library(cutpointr)
+library(summarytools)
+```
+
+## Summary statistics
+
+```{r}
+stroke_data <- read_csv("./healthcare-dataset-stroke-data.csv", na = c("N/A","NA","", "Unknown")) %>%
+  select(-id) %>%
+  drop_na()
+
+stroke_data %>% 
+  ggpairs(columns = c(1,5:6), ggplot2::aes(color = stroke), progress=FALSE)
+
+#summary table by smoking status
+# stroke_data[, c(12, 1:11)] %>%
+#   tbl_summary(by=smoking_status,
+#               statistic = list(all_continuous() ~ "{mean} ({sd})",
+#                                all_categorical() ~ "{n} ({p}%)")) %>%
+#   add_n %>%
+#   add_p(test = all_continuous() ~ "aov") %>%
+#   bold_labels() %>%
+#   as_flex_table() %>%
+#   bg(., i = 1, bg = "grey") %>%
+#   bold(., bold = TRUE, part = "header")
+
+#recode categorical variables
+stroke_data <- stroke_data %>%
+  mutate(stroke = as.factor(stroke),
+         male = ifelse(gender=="Male",1,0),
+         ever_married = ifelse(ever_married=="Yes",1,0), 
+         job_child = ifelse(work_type=="children",1,0), 
+         job_gov = ifelse(work_type=="Govt_job",1,0),
+         job_never = ifelse(work_type=="Never_worked",1,0), 
+         job_private = ifelse(work_type=="Private",1,0),
+         job_selfempl = ifelse(work_type=="Self-employed",1,0),
+         rural = ifelse(Residence_type=="Rural",1,0),
+         ever_smoked = ifelse(smoking_status %in% c("formerly smoked", "smokes"), 1, 0)) %>%
+  select(-c(gender, work_type, Residence_type, smoking_status))
+
+#revised summary table by smoking status
+stroke_data[, c(7, 1:6,8:15)] %>%
+  tbl_summary(by=ever_smoked,
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)")) %>%
+  add_n %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  bold_labels() %>%
+  as_flex_table() %>%
+  bg(., i = 1, bg = "grey") %>%
+  bold(., bold = TRUE, part = "header")
+
+#summary table by hypertension
+stroke_data[, c(7, 1:6, 8:15)] %>%
+  tbl_summary(by=hypertension, 
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)")) %>%
+  add_n %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  bold_labels() %>%
+  as_flex_table() %>%
+  bg(., i = 1, bg = "grey") %>%
+  bold(., bold = TRUE, part = "header")
+```
+
+## Logistic Regression model
+
+
+```{r}
+set.seed(12)
+indices <- createFolds(y=stroke_data$stroke, k=10)
+
+log_fit <- list()
+log_accuracy <- list()
+props <- list()
+model_weights <- list()
+
+for (i in 1:length(indices)){
+  stroke_train <- stroke_data[-indices[[i]],]
+  stroke_test <- stroke_data[indices[[i]],]
+  
+  # Compute weights
+  # freq_table <- freq(stroke_train$stroke, order="freq", totals=FALSE, cumul=FALSE)
+  # props[[i]] <- freq_table[,"% Total"]
+  # props[[i]] <- ifelse(stroke_train$stroke==0, props[[i]]["0"]/100, props[[i]]["1"]/100)
+  # model_weights[[i]] <- 1/props[[i]]
+  # ftable(round(model_weights[i],3))
+
+  # log_fit[[i]] <- glm(stroke ~ ., data=stroke_train, family=binomial(), weights=model_weights[[i]])
+  
+  # SMOTE training set
+  train_smote <- SMOTE(stroke~., data=stroke_train, perc.under = 150)
+  log_fit[[i]] <- glm(stroke ~ ., data=train_smote, family=binomial())
+  
+  # performs poorly due to small n for stroke group
+  # log_fit[[i]] <- glm(stroke ~ ., data=stroke_train, family=binomial())
+  
+  stroke_test$est_probs_log <- predict(log_fit[[i]], newdata=stroke_test, type = "response")
+  stroke_test$pred_log_stroke <- relevel(factor(
+    ifelse(stroke_test$est_probs_log>0.5, "1","0")), ref="0")
+  
+  log_accuracy[[i]] <- rep(NA, length(levels(stroke_test$stroke)))
+  for (j in 1:length(levels(stroke_test$stroke))){
+  log_accuracy[[i]][j] <- stroke_test %>%
+    filter(stroke == levels(pred_log_stroke)[j]) %>%
+    summarise(accuracy =sum(pred_log_stroke==levels(pred_log_stroke)[j])/n()) %>%
+    unlist()
+  names(log_accuracy[[i]])[j] <- paste0("acc_", levels(stroke_test$stroke)[j])
+  }
+}
+CV_mean_log <- do.call("rbind", log_accuracy) %>%
+  apply(MARGIN = 2, FUN=mean, na.rm=TRUE)
+CV_sd_log <- do.call("rbind", log_accuracy) %>%
+  apply(MARGIN = 2, FUN=sd, na.rm=TRUE)
+
+#present CV results
+data.frame("Mean_accuracy" = CV_mean_log) %>%
+  mutate(Group = ifelse(row_number() == 1, "Group 0", "Group 1")) %>% 
+  flextable
+data.frame("SD_accuracy" = CV_sd_log) %>% 
+  mutate(Group = ifelse(row_number() == 1, "Group 0", "Group 1")) %>% 
+  flextable
+
+# without weights performs really poorly on the group with a stroke due to small n
+# Group 0: Mean = 1.0 & SD = 0.001
+# Group 1: Mean = 0.028 & SD = 0.039
+```
+
+```{r}
+
+```
+

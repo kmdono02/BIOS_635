@@ -1,0 +1,50 @@
+---
+title: "Final Project"
+author: "BIOS 635"
+date: "4/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prompt
+
+In your final project, you and your group will choose a dataset and attempt to predict a chosen outcome(s) using machine learning methodology covered in class.  This project will consist of three main components
+
+1. Analysis files (scripts, data, output)
+2. Research paper
+3. Presentation
+
+The research paper will be a documentation of the analyses carried out, information on the dataset, the scientific background about this dataset and research questions carried out, as well as references.  Your paper will be formatted as if it were a research manuscript to be submitted to a journal, similar to what you have read for your article evaluations.  That is, it should include the following sections:
+
+A) Abstract
+  - Brief, one paragraph summary of your work.  Should include very brief mention of research question(s), scientific/public health background of your question(s), the dataset itself, methods used for analysis, and main results of your analysis
+
+B) Introduction
+  - Motivation to scientific and public health background of your research question
+  - Research question(s)
+  - Very brief mention of previous machine learning analyses related to your question(s)
+
+C) Methods
+  - First: description of your dataset (where did it come from, who is the population of interest, sampling method, etc.) with a discussion of the variables of interest in the data and what role they play in your research question(s)
+  - Second: your analysis pipeline.  The amount of detail to provide should be the amount needed to replicate your work.  **Be sure to cite the version of R you are using for your analyses, including a citation entry for R in the works cited page.**  You can find the entry to use using the `citation` function in R.
+  
+D) Results
+  - First: include summary statistics and visualizations of your data.  Make sure these are **related to your research question(s)**.
+  - Second: include the results from your prediction analyses.  For all metrics relating to prediction performance, **make sure to include a measure of accuracy/error and corresponding measure of the uncertainty for this accuracy/error (ex. standard error)**
+    - Use tables and (if useful) visualizations when reporting these numbers.
+    
+E) Discussion
+  - Provide interpretations of your results and how they relate back to your research question(s).
+    - Make sure to also **relate these results to the broader scientific and public health considerations of your questions (what populations do your results pertain to?  Who do they not and why?  Why is important to consider who benefits from your ability to predict?).**
+  - Mention some future directions that may be of interest for analyses related to your research question(s), which may be related to limitations in your analyses.
+  
+Include a works cited page with corresponding in-line citations where appropriate.  Use any of the standard citation methods you would like (just stay consistant, e.g MLA, APA, etc.).  There are no formatting requirements for this project, or page length requirements (though please use either 11 or 12 point font with a standard font style appropriate for an academic setting).
+
+The presentation will be a set of slides based on your analyses described in your paper.  You should touch on all parts in your paper, with a focus on the methods and results sections.
+
+Finally, your analysis files (scripts, data, output) should be contained in a file directory which is well organized to facilitate reproducibility.  All tables and figures mentioned in your paper or presentation **should be created and formatted in code**, the exception being changes to the sizes of rows and columns in your tables.  The main goal: I should be able to reproduce all results simply by running your code with the loaded packages and version of R.
+
+All files, including your paper and slides, will be uploaded to the group GitHub repository as the method for submission.

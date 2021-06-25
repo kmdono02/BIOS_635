@@ -1,0 +1,113 @@
+---
+title: "635FinalProject"
+author: "Zhitong Yu"
+date: "4/23/2021"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(corrplot)
+library("PerformanceAnalytics")
+library(gtsummary)
+library(flextable)
+library(caret)
+library(glmnet)
+```
+
+```{r, fig.width=14, fig.height=10}
+kcal <- read_csv("Food_Supply_kcal_Data.csv")
+head(kcal)
+sum(kcal[1,2:24])
+
+kcal <- kcal  %>%
+  drop_na() %>%
+  mutate(Confirmed_per_capita = Confirmed/Population * 100000000, Deaths_per_capita = Deaths/Population * 100000000) %>%
+  #creating a column that specifies whether each country falls above or below the median
+  mutate(Cases_vs_median = as.character(ifelse(Confirmed_per_capita > median(Confirmed_per_capita), "Above", "Below")), 
+         Deaths_vs_median = as.character(ifelse(Deaths_per_capita > median(Deaths_per_capita), "Above", "Below")))
+
+# Note for discussion: Include Miscellaneous, Spices, exclude population
+kcal <- kcal %>%
+  select(-Obesity, -Undernourished, -Recovered, -Active, -Population, -`Unit (all except Population)`, 
+         -Confirmed_per_capita, -Deaths_per_capita)
+head(kcal)
+corrplot(is.corr=TRUE, cor(kcal[,2:26], use="pairwise.complete.obs"), method="number")
+chart.Correlation(kcal[,2:26], histogram=TRUE)
+
+# summary statistics
+kcal_1 <- kcal %>%
+  select(-Deaths_vs_median, -Country)
+tbl_summary(data = kcal_1, by = "Cases_vs_median",
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n}({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table() %>%
+  bold(part = "header")
+
+kcal_2 <- kcal %>%
+  select(-Cases_vs_median, -Country)
+tbl_summary(data = kcal_2, by = "Deaths_vs_median",
+            statistic = list(all_continuous() ~ "{mean} ({sd})",
+                             all_categorical() ~ "{n}({p}%)")) %>%
+  add_n() %>%
+  add_p(test = all_continuous() ~ "aov") %>%
+  as_flex_table() %>%
+  bold(part = "header")
+
+```
+
+```{r}
+# prepare data for cross validation
+kcal <- kcal %>%
+  # delete country since only each country has only one observation
+  select(-`Animal Products`, -Country)
+kcal %>% head()
+
+#Partition data
+set.seed(321)
+kcal_index = createDataPartition(kcal$Confirmed, p = 0.6, list = FALSE)
+kcal_train = kcal[kcal_index, ]
+kcal_test = kcal[-kcal_index, ]
+kcal_train %>% head()
+```
+
+
+```{r}
+cv_folds_10 = createFolds(y=kcal_train$Confirmed, k=10)
+result_lm <- list()
+result_knn <- list()
+result_lasso <- list()
+result_ridge <- list()
+      for(f in 1:length(cv_folds_10)){
+        kcal_train_cv_10 <- kcal[-cv_folds_10[[f]],]
+        kcal_test_cv_10 <- kcal[cv_folds_10[[f]],]
+        lm_fit = lm(Confirmed~.-Deaths-Cases_vs_median-Deaths_vs_median, data = kcal_train_cv_10)
+        knn_fit = train(Confirmed~.-Deaths-Cases_vs_median-Deaths_vs_median, data = kcal_train_cv_10, 
+                         method = "knn", tuneLength = 20, preProcess = c("scale", "center"),
+                        trControl = trainControl(method="cv", number = 5))
+        lasso_fit = cv.glmnet(x = data.matrix(kcal[,c(1:22)]), y = data.matrix(kcal[,23]), alpha=1)
+        ridge_fit = cv.glmnet(x = data.matrix(kcal[,c(1:22)]), y = data.matrix(kcal[,23]), alpha=0)
+        
+        kcal_test_cv_10$Confirmed_lm_predict <- predict(lm_fit, newdata = kcal_test_cv_10)
+        kcal_test_cv_10$Confirmed_knn_predict <- predict(knn_fit, newdata = kcal_test_cv_10)
+        result_lm[[f]] = mean((kcal_test_cv_10$Confirmed - kcal_test_cv_10$Confirmed_lm_predict)^2, na.rm=TRUE)
+        result_knn[[f]] = mean((kcal_test_cv_10$Confirmed - kcal_test_cv_10$Confirmed_knn_predict)^2, na.rm=TRUE)
+        kcal_test_cv_10 = as.data.frame(kcal_test_cv_10)
+
+        kcal_test_cv_10$Confirmed_lasso_predict <- as.matrix(cbind(1,kcal_test_cv_10[,c(1:22)])) %*% coef(lasso_fit, s = "lambda.min")
+        result_lasso[[f]] = mean((kcal_test_cv_10$Confirmed - kcal_test_cv_10$Confirmed_lasso_predict)^2, na.rm=TRUE)
+        kcal_test_cv_10$Confirmed_ridge_predict <- as.matrix(cbind(1,kcal_test_cv_10[,c(1:22)])) %*% coef(ridge_fit, s = "lambda.min")
+        result_ridge[[f]] = mean((kcal_test_cv_10$Confirmed - kcal_test_cv_10$Confirmed_ridge_predict)^2, na.rm=TRUE)
+      }
+
+data.frame_lm = data.frame("CV_error" = mean(unlist(result_lm)), "CV_error_SE" = sd(unlist(result_lm)))
+data.frame_knn = data.frame("CV_error" = mean(unlist(result_knn)), "CV_error_SE" = sd(unlist(result_knn)))
+data.frame_lasso = data.frame("CV_error" = mean(unlist(result_lasso)), "CV_error_SE" = sd(unlist(result_lasso)))
+data.frame_ridge = data.frame("CV_error" = mean(unlist(result_ridge)), "CV_error_SE" = sd(unlist(result_ridge)))
+rbind("Linear Regression" = data.frame_lm, "KNN" = data.frame_knn, "Lasso" = data.frame_lasso, "Ridge" = data.frame_ridge)
+
+
+```

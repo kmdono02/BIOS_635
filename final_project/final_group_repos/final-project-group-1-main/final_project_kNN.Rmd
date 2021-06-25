@@ -1,0 +1,88 @@
+---
+title: "Final Project"
+author: "Saaketh Vummalaneni"
+date: "4/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+```{r packages, echo=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(caret)
+```
+
+```{r}
+stroke_data <- read_csv("./healthcare-dataset-stroke-data.csv", na = c("N/A","NA","", "Unknown")) %>%
+  select(-id) %>%
+  drop_na()
+
+stroke_data <- stroke_data %>%
+  mutate(stroke = as.factor(stroke),
+         male = ifelse(gender=="Male",1,0),
+         ever_married = ifelse(ever_married=="Yes",1,0), 
+         job_child = ifelse(work_type=="children",1,0), 
+         job_gov = ifelse(work_type=="Govt_job",1,0),
+         job_never = ifelse(work_type=="Never_worked",1,0), 
+         job_private = ifelse(work_type=="Private",1,0),
+         job_selfempl = ifelse(work_type=="Self-employed",1,0),
+         rural = ifelse(Residence_type=="Rural",1,0),
+         ever_smoked = ifelse(smoking_status %in% c("formerly smoked", "smokes"), 1, 0)) %>%
+  select(-c(gender, work_type, Residence_type, smoking_status))
+```
+
+```{r kNN}
+set.seed(12)
+data_set_list <- list()
+data_set_list_se <- list()
+predict_stroke <- list()
+individualfolds <- list()
+kfolds<-c(5,10,100)
+
+for(k in 1:length(kfolds)){
+  individualfolds<- createFolds(y=stroke_data$stroke, k=kfolds[k])
+  per_class_accuracy <- list()
+    for(i in 1:length(individualfolds)){
+      stroke_data_train <- stroke_data[-individualfolds[[i]],]
+      stroke_data_test <- stroke_data[individualfolds[[i]],]
+    
+      KNNfit<-train(stroke~., data = stroke_data_train, method = "knn",
+                  preProcess = c("center","scale"),
+                  trControl = trainControl(method = "cv", number = 5),
+                  tuneLength = 5)
+    
+      stroke_data_test$predict_stroke <- predict(KNNfit, newdata =
+                                                   stroke_data_test,type="raw")
+      per_class_accuracy[[i]] <- 
+        rep(NA, length(levels(stroke_data_test$stroke)))
+      for(l in 1:length(per_class_accuracy[[i]])){
+        per_class_accuracy[[i]][l] <- 
+          stroke_data_test %>%
+          filter(stroke==levels(stroke)[l]) %>%
+          summarise(error = 1-sum(predict_stroke==levels(stroke)[l])/n()) %>%
+          unlist()
+          
+        names(per_class_accuracy[[i]])[l] <- 
+          paste0("error_", levels(stroke_data_test$stroke)[l])
+      }
+    }
+   data_set_list[[k]]  <- do.call("rbind", per_class_accuracy) %>%
+    apply(MARGIN=2, FUN=mean, na.rm=TRUE)
+  
+   data_set_list_se[[k]] <- do.call("rbind", per_class_accuracy) %>%
+    apply(MARGIN=2, FUN=sd, na.rm=TRUE)
+  
+   data_set_list[[k]] <- c(data_set_list[[k]], "folds"=kfolds[k])
+  
+   data_set_list_se[[k]] <- c(data_set_list_se[[k]], "folds"=kfolds[k])
+}
+data_set_list_all <- do.call("rbind", data_set_list)
+data_set_list_se_all <- do.call("rbind", data_set_list_se)
+data_set_list_all
+data_set_list_se_all
+```
+
