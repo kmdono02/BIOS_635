@@ -1,2 +1,0 @@
-\beamer@sectionintoc {1}{Welcome}{2}{0}{1}
-\beamer@sectionintoc {2}{Introduction}{7}{0}{2}
